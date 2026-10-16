@@ -52,7 +52,30 @@ class NsfwContentDetector {
         "/porn/", "/xxx/", "/hentai/", "/nsfw/", "/adult/", "/erotic/", "/cams/", "/webcam/"
     )
 
+    private val customKeywords = HashSet<String>()
+
     var isEnabled: Boolean = true
+
+    fun setCustomKeywords(keywords: Collection<String>) {
+        synchronized(customKeywords) {
+            customKeywords.clear()
+            for (kw in keywords) {
+                val clean = kw.lowercase().trim()
+                if (clean.length >= 2) {
+                    customKeywords.add(clean)
+                }
+            }
+        }
+    }
+
+    fun getCustomKeywords(): Set<String> {
+        return synchronized(customKeywords) { customKeywords.toSet() }
+    }
+
+    fun isBuiltInKeyword(candidate: String): Boolean {
+        val clean = candidate.lowercase().trim()
+        return nsfwKeywords.contains(clean) || explicitTlds.contains(clean) || explicitPathSegments.contains(clean)
+    }
 
     /**
      * Inspects a candidate string (URL, domain, or search query text).
@@ -92,7 +115,7 @@ class NsfwContentDetector {
         val extractedQuery = extractSearchQuery(decoded)
         val textToInspect = extractedQuery ?: decoded
 
-        // 4. Word boundary and pattern matching
+        // 4. Word boundary and pattern matching against HARDCODED adult keywords (immutable baseline)
         for (keyword in nsfwKeywords) {
             if (containsWordOrPattern(textToInspect, keyword)) {
                 return NsfwDetectionResult(
@@ -102,6 +125,19 @@ class NsfwContentDetector {
                     original = candidate
                 )
             }
+        }
+
+        // 5. Check Custom User Blocked Keywords
+        val matchedCustom = synchronized(customKeywords) {
+            customKeywords.firstOrNull { containsWordOrPattern(textToInspect, it) }
+        }
+        if (matchedCustom != null) {
+            return NsfwDetectionResult(
+                isNsfw = true,
+                matchedTerm = matchedCustom,
+                category = "Custom Blocked Keyword",
+                original = candidate
+            )
         }
 
         return NsfwDetectionResult(isNsfw = false, matchedTerm = null, category = "Clean", original = candidate)

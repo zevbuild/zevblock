@@ -59,6 +59,11 @@ class ShieldAccessibilityService : AccessibilityService() {
             return
         }
 
+        // Sync custom keywords from customRuleManager
+        customRuleManager?.let {
+            nsfwContentDetector.setCustomKeywords(it.customKeywords.value)
+        }
+
         try {
             val rootNode: AccessibilityNodeInfo? = rootInActiveWindow
 
@@ -73,6 +78,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                     val incognitoCount = _incognitoBlocks.incrementAndGet()
                     incognitoBlocksCount.value = incognitoCount
                     logEvent(packageName, "Incognito Window Blocked", "Private browsing is disabled")
+                    statsManager?.recordIncognitoBlock()
                     OverlayManager.triggerWarning(
                         this,
                         alertType = "Incognito Mode Blocked",
@@ -93,6 +99,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                         val nsfwCount = _nsfwBlocks.incrementAndGet()
                         nsfwBlocksCount.value = nsfwCount
                         logEvent(packageName, "NSFW Content Blocked", "Matched: ${nsfwResult.matchedTerm}")
+                        statsManager?.recordScreenBlock()
                         OverlayManager.triggerWarning(
                             this,
                             alertType = "Explicit Content Blocked",
@@ -116,6 +123,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                     val settingsCount = _settingsBlocks.incrementAndGet()
                     settingsBlocksCount.value = settingsCount
                     logEvent(packageName, "Settings Tamper Blocked", tamperEvent.target)
+                    statsManager?.recordSettingsTamper()
                     OverlayManager.triggerWarning(
                         this,
                         alertType = "Settings Access Restricted",
@@ -144,6 +152,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                         val nsfwCount = _nsfwBlocks.incrementAndGet()
                         nsfwBlocksCount.value = nsfwCount
                         logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${windowNsfw.matchedTerm}")
+                        statsManager?.recordChatWarning()
                         rootNode?.recycle()
                         return
                     }
@@ -158,6 +167,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                             val nsfwCount = _nsfwBlocks.incrementAndGet()
                             nsfwBlocksCount.value = nsfwCount
                             logEvent(packageName, "Adult Content Blocked", "Matched: ${nsfwResult.matchedTerm}")
+                            statsManager?.recordScreenBlock()
                             OverlayManager.triggerWarning(
                                 this,
                                 alertType = "Explicit Content Blocked",
@@ -176,6 +186,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                             val nsfwCount = _nsfwBlocks.incrementAndGet()
                             nsfwBlocksCount.value = nsfwCount
                             logEvent(packageName, "On-Screen Adult Content Blocked", "Matched: ${windowNsfw.matchedTerm}")
+                            statsManager?.recordScreenBlock()
                             OverlayManager.triggerWarning(
                                 this,
                                 alertType = "Explicit Content Blocked",
@@ -375,6 +386,9 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         private val _recentEvents = MutableStateFlow<List<AccessibilityLogEntry>>(emptyList())
         val recentEvents: StateFlow<List<AccessibilityLogEntry>> = _recentEvents.asStateFlow()
+
+        var statsManager: com.example.core.stats.ProtectionStatsManager? = null
+        var customRuleManager: com.example.core.rules.CustomShieldRuleManager? = null
 
         fun openAccessibilitySettings(context: android.content.Context) {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {

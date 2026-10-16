@@ -142,6 +142,7 @@ open class DnsBlockerVpnService : VpnService() {
                         val safeCount = _safeSearchQueries.incrementAndGet()
                         safeSearchQueriesCount.value = safeCount
                         logDnsEvent(domain, "SafeSearch VIP", isBlocked = false, isSafeSearch = true, reason = "Forced Strict VIP")
+                        statsManager?.recordDnsQuery(isBlocked = false, isSafeSearch = true)
                         continue
                     }
                 }
@@ -158,6 +159,7 @@ open class DnsBlockerVpnService : VpnService() {
                         val blockedCount = _blockedQueries.incrementAndGet()
                         blockedQueriesCount.value = blockedCount
                         logDnsEvent(domain, "Blocked", isBlocked = true, isSafeSearch = false, reason = blockResult.reason)
+                        statsManager?.recordDnsQuery(isBlocked = true, isSafeSearch = false)
                         continue
                     }
                 }
@@ -167,6 +169,7 @@ open class DnsBlockerVpnService : VpnService() {
                     forwardUpstreamDns(ipPacket, dnsQuery.rawQueryBytes, fos)
                 }
                 logDnsEvent(domain, "Allowed", isBlocked = false, isSafeSearch = false, reason = "Upstream Resolved (Adult-Filtered)")
+                statsManager?.recordDnsQuery(isBlocked = false, isSafeSearch = false)
 
             } catch (e: Exception) {
                 if (scope.isActive) {
@@ -344,6 +347,7 @@ open class DnsBlockerVpnService : VpnService() {
 
         val blocklistMatcher = DomainBlocklistMatcher()
         val safeSearchManager = SafeSearchManager()
+        var statsManager: com.example.core.stats.ProtectionStatsManager? = null
 
         fun start(context: Context) {
             val intent = Intent(context, DnsBlockerVpnService::class.java).apply {

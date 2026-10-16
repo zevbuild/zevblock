@@ -297,4 +297,111 @@ class ExampleRobolectricTest {
         assertFalse(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.android.settings"))
         assertFalse(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.android.calculator2"))
     }
+
+    @Test
+    fun `test zero-bypass guarantee on hardcoded adult blocklists`() {
+        val matcher = DomainBlocklistMatcher()
+
+        // Adult domains are blocked by default
+        assertTrue(matcher.isBlocked("pornhub.com").isBlocked)
+        assertTrue(matcher.isBlocked("xvideos.com").isBlocked)
+
+        // Attempting to whitelist an adult domain must be rejected and fail
+        matcher.addAllowedDomain("pornhub.com")
+        matcher.addAllowedDomain("xvideos.com")
+
+        // Must STILL be blocked (zero bypass guarantee)
+        assertTrue("Built-in adult domain must NEVER be whitelisted", matcher.isBlocked("pornhub.com").isBlocked)
+        assertTrue("Built-in adult domain must NEVER be whitelisted", matcher.isBlocked("xvideos.com").isBlocked)
+    }
+
+    @Test
+    fun `test custom shield rule manager with partner totp and cooldown`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val lockManager = TamperLockManager(context)
+        val secret = lockManager.setupNewPartnerSecret()
+
+        val matcher = DomainBlocklistMatcher()
+        val nsfwDetector = com.example.core.accessibility.NsfwContentDetector()
+        val ruleManager = com.example.core.rules.CustomShieldRuleManager(context, lockManager, matcher, nsfwDetector)
+
+        // 1. Add Custom Domain
+        val domainRes = ruleManager.addDomain("gambling-site.com")
+        assertTrue(domainRes is com.example.core.rules.RuleOperationResult.Success)
+        assertTrue(ruleManager.customDomains.value.contains("gambling-site.com"))
+        assertTrue(matcher.isBlocked("gambling-site.com").isBlocked)
+
+        // Cannot add built-in adult domain as custom (it is already system-protected)
+        val adultRes = ruleManager.addDomain("pornhub.com")
+        assertTrue(adultRes is com.example.core.rules.RuleOperationResult.ProtectedBySystem)
+
+        // 2. Add Custom Keyword
+        val kwRes = ruleManager.addKeyword("badtriggerphrase")
+        assertTrue(kwRes is com.example.core.rules.RuleOperationResult.Success)
+        assertTrue(ruleManager.customKeywords.value.contains("badtriggerphrase"))
+        assertTrue(nsfwDetector.analyze("badtriggerphrase").isNsfw)
+
+        // Cannot add built-in adult keyword as custom (already protected)
+        val nsfwRes = ruleManager.addKeyword("porn")
+        assertTrue(nsfwRes is com.example.core.rules.RuleOperationResult.ProtectedBySystem)
+
+        // 3. Remove with INVALID TOTP -> Must Fail
+        val badTotpRes = ruleManager.removeDomainWithTotp("gambling-site.com", "000000")
+        assertTrue(badTotpRes is com.example.core.rules.RuleOperationResult.TotpFailed)
+        assertTrue(ruleManager.customDomains.value.contains("gambling-site.com"))
+
+        // 4. Remove with VALID Partner TOTP -> Succeeds immediately
+        val currentStep = (System.currentTimeMillis() / 1000L) / 30L
+        val validTotp = lockManager.generateTotpCodeForStep(secret, currentStep)
+        val goodTotpRes = ruleManager.removeDomainWithTotp("gambling-site.com", validTotp)
+        assertTrue(goodTotpRes is com.example.core.rules.RuleOperationResult.Success)
+        assertFalse(ruleManager.customDomains.value.contains("gambling-site.com"))
+
+        // 5. Cooldown removal flow
+        val cooldownRes = ruleManager.requestCooldownRemoval("badtriggerphrase", com.example.core.rules.RuleType.KEYWORD)
+        assertTrue(cooldownRes is com.example.core.rules.RuleOperationResult.CooldownStarted)
+        assertEquals(1, ruleManager.pendingRemovals.value.size)
+        // Rule remains strictly active during cooldown
+        assertTrue(ruleManager.customKeywords.value.contains("badtriggerphrase"))
+    }
+
+    @Test
+    fun `test protection stats manager aggregation and streak`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val lockManager = TamperLockManager(context)
+        val secret = lockManager.setupNewPartnerSecret()
+
+        val statsManager = com.example.core.stats.ProtectionStatsManager(context, lockManager)
+
+        // Record events
+        statsManager.recordDnsQuery(isBlocked = true, isSafeSearch = false)
+        statsManager.recordDnsQuery(isBlocked = false, isSafeSearch = true)
+        statsManager.recordScreenBlock()
+        statsManager.recordIncognitoBlock()
+        statsManager.recordChatWarning()
+        statsManager.recordSettingsTamper()
+
+        // Check today's totals
+        val today = statsManager.todayStat.value
+        assertEquals(1L, today.dnsBlocked)
+        assertEquals(1L, today.screenBlocked)
+        assertEquals(1L, today.incognitoBlocked)
+        assertEquals(1L, today.chatWarnings)
+        assertEquals(1L, today.settingsBlocked)
+        assertEquals(5L, today.totalBlocks)
+
+        // Check 7-day list
+        assertEquals(7, statsManager.past7Days.value.size)
+        assertTrue(statsManager.streakDays.value >= 1)
+        assertTrue(statsManager.allTimeTotalBlocks.value >= 5L)
+
+        // Unauthorized reset without partner TOTP must fail
+        assertFalse(statsManager.resetStatsWithPartner("123456"))
+
+        // Authorized reset with partner TOTP succeeds
+        val currentStep = (System.currentTimeMillis() / 1000L) / 30L
+        val validTotp = lockManager.generateTotpCodeForStep(secret, currentStep)
+        assertTrue(statsManager.resetStatsWithPartner(validTotp))
+        assertEquals(0L, statsManager.allTimeTotalBlocks.value)
+    }
 }

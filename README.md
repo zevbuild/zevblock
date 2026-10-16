@@ -5,7 +5,7 @@
 </p>
 
 [![Build & Release ZevBlock APK](https://github.com/zevbuild/zevblock/actions/workflows/build.yml/badge.svg)](https://github.com/zevbuild/zevblock/actions/workflows/build.yml)
-[![Latest Release](https://img.shields.io/github/v/release/zevbuild/zevblock?label=Release&color=00E676)](https://github.com/zevbuild/zevblock/releases/tag/v1.4-stable)
+[![Latest Release](https://img.shields.io/github/v/release/zevbuild/zevblock?label=Release&color=00E676)](https://github.com/zevbuild/zevblock/releases/tag/v1.5-stable)
 [![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B%20%28API%2024--36%29-00B0FF)](https://developer.android.com)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device%20%7C%20Zero%20Telemetry-green)](https://github.com/zevbuild/zevblock)
 [![License](https://img.shields.io/badge/License-Open%20Source-blue)](LICENSE)
@@ -19,8 +19,8 @@ ZevBlock is a hardened, battery-efficient Android protection and accountability 
 Pre-compiled APKs are built directly by automated GitHub CI:
 
 ### Option A: From GitHub Releases (Recommended)
-1. Navigate to [**GitHub Releases**](https://github.com/zevbuild/zevblock/releases/tag/v1.4-stable).
-2. Under the latest **v1.4-stable** release, download `ZevBlock-v1.0-debug.apk` or `ZevBlock-latest.apk`.
+1. Navigate to [**GitHub Releases**](https://github.com/zevbuild/zevblock/releases/tag/v1.5-stable).
+2. Under the latest **v1.5-stable** release, download `ZevBlock-v1.0-debug.apk` or `ZevBlock-latest.apk`.
 3. Open the downloaded file on your Android device to install.
 
 ### Option B: From GitHub Actions CI Artifacts
@@ -117,9 +117,14 @@ Pre-compiled APKs are built directly by automated GitHub CI:
 
 ## 📱 User Interface & Features
 
-* **Dashboard Screen:** Hero defense status card with dynamic pulsing animation, 2x2 module status grid, live query counters, and real-time security activity feed.
+* **Dashboard Screen:** Hero defense status card with dynamic pulsing animation, **7-Day Visual Protection Bar Chart**, **Clean Protection Streak counter**, 2x2 module status grid, live query counters, and real-time security activity feed.
+* **Custom Shield Rules (Zero-Bypass Dual-Protection):**
+  * **Additive Protection:** Add custom domains for local DNS sinkholing and custom keywords for screen and chat monitoring.
+  * **Zero-Bypass Guarantee:** Built-in adult blocklists and keywords are permanently locked and cannot be disabled or whitelisted.
+  * **Dual-Protection Deletion:** Removing a custom rule strictly requires **Partner 6-digit TOTP verification** or a **24-hour hardware cooldown delay** (`SystemClock.elapsedRealtime()`) to protect against impulsive relapse.
+* **Tamper-Proof Protection Analytics (`ProtectionStatsManager`):** Aggregates daily intercepts (DNS sinkhole, on-screen blocks, incognito attempts, chat warnings, and settings tamper guards). Clearing statistics requires Partner TOTP verification.
 * **Android 13+ "Restricted Settings" Bypass Visual Guide:** Illustrated step-by-step walkthrough resolving Android 13/14/15 sideloaded accessibility restrictions with direct intent launchers.
-* **Partner Setup Screen:** Pure-Kotlin QR code view, copyable Base32 secret key, and rolling 6-digit code verifier with $\pm 30\text{s}$ drift tolerance.
+* **Partner Setup Screen:** Pure-Kotlin QR code view, copyable Base32 secret key, rolling 6-digit code verifier with $\pm 30\text{s}$ drift tolerance, and temporary bypass authorization.
 * **Interactive Tools & Simulators:** Test DNS lookups against SafeSearch VIPs and adult blocklists, evaluate search query URLs, and preview the translucent warning overlay.
 
 ---

@@ -59,10 +59,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
+import com.example.core.stats.DayStat
+import com.example.core.stats.ProtectionStatsManager
 import com.example.core.updater.AppUpdateManager
 import com.example.core.updater.UpdateStatus
-import androidx.compose.ui.Alignment
+import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -108,6 +110,7 @@ fun DashboardScreen(
     ruleCount: Int,
     dnsLogs: List<DnsLogEntry>,
     accessibilityLogs: List<AccessibilityLogEntry>,
+    statsManager: ProtectionStatsManager? = null,
     onToggleVpn: () -> Unit,
     onApplyLockdown: () -> Unit,
     onReleaseLockdown: () -> Unit,
@@ -118,6 +121,11 @@ fun DashboardScreen(
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     val updateStatus by AppUpdateManager.updateStatus.collectAsState()
+
+    val past7Days by (statsManager?.past7Days ?: remember { MutableStateFlow(emptyList<DayStat>()) }).collectAsState()
+    val todayStat by (statsManager?.todayStat ?: remember { MutableStateFlow(DayStat("Today", "", 0, 0, 0, 0, 0, 0)) }).collectAsState()
+    val allTimeBlocks by (statsManager?.allTimeTotalBlocks ?: remember { MutableStateFlow(0L) }).collectAsState()
+    val streakDays by (statsManager?.streakDays ?: remember { MutableStateFlow(1) }).collectAsState()
 
     LaunchedEffect(Unit) {
         AppUpdateManager.checkForUpdate(context)
@@ -482,6 +490,14 @@ fun DashboardScreen(
             }
         }
 
+        // 7-Day Visual Activity Bar Chart & Protection Streak
+        WeeklyProtectionBarChart(
+            past7Days = past7Days,
+            streakDays = streakDays,
+            allTimeTotalBlocks = allTimeBlocks,
+            todayTotalBlocks = todayStat.totalBlocks
+        )
+
         // Module Defense Grid (2x2 Cards)
         Text(
             text = "DEFENSE MODULES",
@@ -822,4 +838,181 @@ private fun openAccessibility(context: Context) {
         context.startActivity(intent)
     } catch (_: Exception) {}
 }
+
+@Composable
+fun WeeklyProtectionBarChart(
+    past7Days: List<DayStat>,
+    streakDays: Int,
+    allTimeTotalBlocks: Long,
+    todayTotalBlocks: Long
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            // Header with Streak Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "PROTECTION HISTORY",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextSecondaryDark,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "7-Day Activity & Streak",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark
+                    )
+                }
+
+                // Streak Badge
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = ShieldGreen.copy(alpha = 0.15f),
+                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldGreen))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🔥 $streakDays Days Clean",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = ShieldGreen
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Bar Chart Layout
+            val maxBlocks = (past7Days.maxOfOrNull { it.totalBlocks } ?: 1L).coerceAtLeast(10L).toFloat()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(130.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                past7Days.forEach { day ->
+                    val fraction = (day.totalBlocks.toFloat() / maxBlocks).coerceIn(0.08f, 1f)
+                    val isToday = day.dayLabel == "Today"
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom
+                    ) {
+                        // Value label above bar
+                        Text(
+                            text = if (day.totalBlocks > 0) "${day.totalBlocks}" else "0",
+                            fontSize = 10.sp,
+                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isToday) ShieldGreen else TextSecondaryDark
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Bar with gradient
+                        Box(
+                            modifier = Modifier
+                                .width(22.dp)
+                                .height((90 * fraction).dp)
+                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                .background(
+                                    if (isToday) {
+                                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            listOf(ShieldGreen, ShieldTeal)
+                                        )
+                                    } else if (day.totalBlocks > 0) {
+                                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            listOf(ShieldTeal.copy(alpha = 0.8f), ShieldTeal.copy(alpha = 0.3f))
+                                        )
+                                    } else {
+                                        androidx.compose.ui.graphics.SolidColor(ShieldBorderDark)
+                                    }
+                                )
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Day label (e.g. Mon, Tue, Today)
+                        Text(
+                            text = day.dayLabel,
+                            fontSize = 10.sp,
+                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isToday) ShieldGreen else TextSecondaryDark
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Category Distribution Summary Chips
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                StatPill(
+                    modifier = Modifier.weight(1f),
+                    title = "DNS Sinks",
+                    count = past7Days.sumOf { it.dnsBlocked },
+                    color = ShieldGreen
+                )
+                StatPill(
+                    modifier = Modifier.weight(1f),
+                    title = "Screen Blocks",
+                    count = past7Days.sumOf { it.screenBlocked },
+                    color = ShieldTeal
+                )
+                StatPill(
+                    modifier = Modifier.weight(1f),
+                    title = "Chat Warnings",
+                    count = past7Days.sumOf { it.chatWarnings },
+                    color = ShieldAmber
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun StatPill(
+    modifier: Modifier = Modifier,
+    title: String,
+    count: Long,
+    color: Color
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        color = color.copy(alpha = 0.10f),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(color.copy(alpha = 0.3f)))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = "$count", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = color)
+            Text(text = title, fontSize = 10.sp, color = TextSecondaryDark, maxLines = 1)
+        }
+    }
+}
+
 

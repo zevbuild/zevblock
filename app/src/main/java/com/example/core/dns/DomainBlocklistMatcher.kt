@@ -32,26 +32,27 @@ class DomainBlocklistMatcher {
     fun isBlocked(rawDomain: String): BlockResult {
         val domain = rawDomain.lowercase().trimEnd('.')
 
-        // 1. Check Allowlist first
-        if (isDomainInSet(domain, allowedDomains)) {
-            return BlockResult(isBlocked = false, matchedRule = null, reason = "Explicitly allowed")
-        }
-
-        // 2. Check Custom User Rules
-        if (isDomainInSet(domain, customRules)) {
-            return BlockResult(isBlocked = true, matchedRule = domain, reason = "Custom user blocklist")
-        }
-
-        // 3. Hierarchical Blocklist Suffix Match (O(number of labels))
+        // 1. Hierarchical Blocklist Suffix Match against HARDCODED Adult Seed / StevenBlack rules
+        // Hardcoded adult blocks are IMMUTABLE and can NEVER be bypassed, whitelisted, or removed!
         var current = domain
         while (current.isNotEmpty()) {
             val matched = synchronized(lock) { blockedDomains.contains(current) }
             if (matched) {
-                return BlockResult(isBlocked = true, matchedRule = current, reason = "StevenBlack hosts rule")
+                return BlockResult(isBlocked = true, matchedRule = current, reason = "Adult Shield Blocklist")
             }
             val dotIndex = current.indexOf('.')
             if (dotIndex == -1) break
             current = current.substring(dotIndex + 1)
+        }
+
+        // 2. Check Custom User Rules (e.g. custom triggers, gambling, distracting domains)
+        if (isDomainInSet(domain, customRules)) {
+            return BlockResult(isBlocked = true, matchedRule = domain, reason = "Custom User Blocklist")
+        }
+
+        // 3. Check Allowlist (Only applicable to non-adult, non-custom domains)
+        if (isDomainInSet(domain, allowedDomains)) {
+            return BlockResult(isBlocked = false, matchedRule = null, reason = "Explicitly allowed")
         }
 
         return BlockResult(isBlocked = false, matchedRule = null, reason = "Allowed")
@@ -114,20 +115,53 @@ class DomainBlocklistMatcher {
     fun addCustomBlockedDomain(domain: String) {
         val clean = domain.lowercase().trimEnd('.')
         if (isValidDomain(clean)) {
-            customRules.add(clean)
+            synchronized(lock) {
+                customRules.add(clean)
+            }
         }
+    }
+
+    fun setCustomBlockedDomains(domains: Collection<String>) {
+        synchronized(lock) {
+            customRules.clear()
+            for (d in domains) {
+                val clean = d.lowercase().trimEnd('.')
+                if (isValidDomain(clean)) {
+                    customRules.add(clean)
+                }
+            }
+        }
+    }
+
+    fun getCustomBlockedDomains(): Set<String> {
+        return synchronized(lock) { customRules.toSet() }
+    }
+
+    fun isHardcodedAdultDomain(rawDomain: String): Boolean {
+        val domain = rawDomain.lowercase().trimEnd('.')
+        var current = domain
+        while (current.isNotEmpty()) {
+            val matched = synchronized(lock) { blockedDomains.contains(current) }
+            if (matched) return true
+            val dotIndex = current.indexOf('.')
+            if (dotIndex == -1) break
+            current = current.substring(dotIndex + 1)
+        }
+        return false
     }
 
     fun addAllowedDomain(domain: String) {
         val clean = domain.lowercase().trimEnd('.')
-        if (isValidDomain(clean)) {
+        if (isValidDomain(clean) && !isHardcodedAdultDomain(clean)) {
             allowedDomains.add(clean)
         }
     }
 
     fun removeCustomRule(domain: String) {
         val clean = domain.lowercase().trimEnd('.')
-        customRules.remove(clean)
+        synchronized(lock) {
+            customRules.remove(clean)
+        }
         allowedDomains.remove(clean)
     }
 

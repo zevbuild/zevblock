@@ -77,11 +77,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Tune
 import com.example.accessibility.ShieldAccessibilityService
 import com.example.core.accessibility.NsfwContentDetector
 import com.example.core.admin.DeviceAdminManager
+import com.example.core.rules.CustomShieldRuleManager
 import com.example.core.security.TamperLockManager
+import com.example.core.stats.ProtectionStatsManager
 import com.example.ui.overlay.SecurityWarningOverlayActivity
+import com.example.ui.screens.CustomRulesScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.PartnerSetupScreen
@@ -146,6 +150,28 @@ fun ShieldGuardApp(
     val recentAccessibilityLogs by ShieldAccessibilityService.recentEvents.collectAsState()
     var ruleCount by remember { mutableStateOf(DnsBlockerVpnService.blocklistMatcher.getRuleCount()) }
 
+    val customRuleManager = remember {
+        CustomShieldRuleManager(
+            context = context,
+            tamperLockManager = tamperLockManager,
+            blocklistMatcher = DnsBlockerVpnService.blocklistMatcher,
+            nsfwContentDetector = NsfwContentDetector()
+        )
+    }
+
+    val statsManager = remember {
+        ProtectionStatsManager(
+            context = context,
+            tamperLockManager = tamperLockManager
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        DnsBlockerVpnService.statsManager = statsManager
+        ShieldAccessibilityService.statsManager = statsManager
+        ShieldAccessibilityService.customRuleManager = customRuleManager
+    }
+
     // VPN launcher
     val vpnPrepareLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -196,6 +222,8 @@ fun ShieldGuardApp(
         isBypassActive = tamperLockManager.isBypassActive()
         bypassRemainingMs = tamperLockManager.getRemainingBypassMs()
         ruleCount = DnsBlockerVpnService.blocklistMatcher.getRuleCount()
+        statsManager.refreshStats()
+        customRuleManager.refreshPendingRemovals()
     }
 
     Scaffold(
@@ -223,9 +251,10 @@ fun ShieldGuardApp(
                             )
                             Text(
                                 text = when (selectedTab) {
-                                    0 -> "System Dashboard"
-                                    1 -> "Permissions & Bypass Guide"
+                                    0 -> "System Dashboard & Streak"
+                                    1 -> "Custom Rules & Keywords"
                                     2 -> "Accountability Partner Lock"
+                                    3 -> "Permissions & Setup Guide"
                                     else -> "Interactive Rule Testers"
                                 },
                                 fontSize = 11.sp,
@@ -254,7 +283,7 @@ fun ShieldGuardApp(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
                     icon = { Icon(imageVector = Icons.Default.Shield, contentDescription = "Dashboard") },
-                    label = { Text("Dashboard", fontSize = 11.sp) },
+                    label = { Text("Dashboard", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = ShieldNavyDark,
                         indicatorColor = ShieldGreen,
@@ -267,8 +296,8 @@ fun ShieldGuardApp(
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(imageVector = Icons.Default.Visibility, contentDescription = "Setup") },
-                    label = { Text("Setup", fontSize = 11.sp) },
+                    icon = { Icon(imageVector = Icons.Default.Tune, contentDescription = "Rules") },
+                    label = { Text("Rules", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = ShieldNavyDark,
                         indicatorColor = ShieldTeal,
@@ -282,7 +311,7 @@ fun ShieldGuardApp(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
                     icon = { Icon(imageVector = Icons.Default.QrCode2, contentDescription = "Partner") },
-                    label = { Text("Partner", fontSize = 11.sp) },
+                    label = { Text("Partner", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = ShieldNavyDark,
                         indicatorColor = ShieldTeal,
@@ -295,8 +324,22 @@ fun ShieldGuardApp(
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
+                    icon = { Icon(imageVector = Icons.Default.Visibility, contentDescription = "Setup") },
+                    label = { Text("Setup", fontSize = 10.sp) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = ShieldNavyDark,
+                        indicatorColor = ShieldTeal,
+                        selectedTextColor = ShieldTeal,
+                        unselectedIconColor = TextSecondaryDark,
+                        unselectedTextColor = TextSecondaryDark
+                    )
+                )
+
+                NavigationBarItem(
+                    selected = selectedTab == 4,
+                    onClick = { selectedTab = 4 },
                     icon = { Icon(imageVector = Icons.Default.Build, contentDescription = "Tools") },
-                    label = { Text("Tools", fontSize = 11.sp) },
+                    label = { Text("Tools", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = ShieldNavyDark,
                         indicatorColor = ShieldAmber,
@@ -326,6 +369,7 @@ fun ShieldGuardApp(
                     ruleCount = ruleCount,
                     dnsLogs = recentDnsLogs,
                     accessibilityLogs = recentAccessibilityLogs,
+                    statsManager = statsManager,
                     onToggleVpn = { launchVpn() },
                     onApplyLockdown = {
                         val ok = deviceAdminManager.applyAntiBypassLockdown()
@@ -337,7 +381,7 @@ fun ShieldGuardApp(
                         Toast.makeText(context, if (ok) "Lockdown Released" else "Not permitted", Toast.LENGTH_SHORT).show()
                         refreshAll()
                     },
-                    onNavigateToSetup = { selectedTab = 1 },
+                    onNavigateToSetup = { selectedTab = 3 },
                     onCancelBypass = {
                         tamperLockManager.cancelTemporaryBypass()
                         isBypassActive = false
@@ -345,12 +389,10 @@ fun ShieldGuardApp(
                     }
                 )
 
-                1 -> OnboardingScreen(
-                    deviceOwnerStatus = status,
-                    isVpnRunning = isVpnRunning,
-                    isAccessibilityActive = isAccessibilityActive,
-                    onLaunchVpnPrepare = { launchVpn() },
-                    onNavigateToPartnerLock = { selectedTab = 2 }
+                1 -> CustomRulesScreen(
+                    ruleManager = customRuleManager,
+                    hasPartnerConfigured = tamperLockManager.getPartnerSecret() != null,
+                    onNavigateToPartnerSetup = { selectedTab = 2 }
                 )
 
                 2 -> PartnerSetupScreen(
@@ -380,7 +422,15 @@ fun ShieldGuardApp(
                     }
                 )
 
-                3 -> ToolsSimulatorScreen(
+                3 -> OnboardingScreen(
+                    deviceOwnerStatus = status,
+                    isVpnRunning = isVpnRunning,
+                    isAccessibilityActive = isAccessibilityActive,
+                    onLaunchVpnPrepare = { launchVpn() },
+                    onNavigateToPartnerLock = { selectedTab = 2 }
+                )
+
+                4 -> ToolsSimulatorScreen(
                     onTestOverlay = {
                         SecurityWarningOverlayActivity.show(
                             context,
