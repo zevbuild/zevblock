@@ -8,9 +8,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -160,13 +163,10 @@ fun DashboardScreen(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Security,
-                        contentDescription = "Shield State",
-                        tint = if (isFullDefenseActive) ShieldGreen
-                        else if (isVpnRunning || isAccessibilityActive) ShieldTeal
-                        else ShieldAmber,
-                        modifier = Modifier.size(42.dp)
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_zevblock_logo),
+                        contentDescription = "ZevBlock Shield",
+                        modifier = Modifier.size(46.dp)
                     )
                 }
 

@@ -1,6 +1,8 @@
-# ZevBlock
-
-> **Hardened System-Level Adult Content Filter, Local DNS Sinkhole & Anti-Bypass Accountability OS for Android**
+<p align="center">
+  <img src="app/src/main/res/drawable/ic_zevblock_logo.png" width="120" height="120" alt="ZevBlock Logo" />
+  <h1 align="center">ZevBlock</h1>
+  <p align="center"><strong>Hardened System-Level Adult Content Filter, Local DNS Sinkhole &amp; Anti-Bypass Accountability OS for Android</strong></p>
+</p>
 
 [![Build & Release ZevBlock APK](https://github.com/zevbuild/zevblock/actions/workflows/build.yml/badge.svg)](https://github.com/zevbuild/zevblock/actions/workflows/build.yml)
 [![Latest Release](https://img.shields.io/github/v/release/zevbuild/zevblock?label=Release&color=00E676)](https://github.com/zevbuild/zevblock/releases/tag/v1.1-stable)
