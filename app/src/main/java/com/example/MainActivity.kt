@@ -89,6 +89,7 @@ import com.example.ui.screens.CustomRulesScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.PartnerSetupScreen
+import com.example.ui.screens.WelcomePurposeDialog
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.ShieldAmber
 import com.example.ui.theme.ShieldBorderDark
@@ -135,6 +136,10 @@ fun ShieldGuardApp(
     tamperLockManager: TamperLockManager
 ) {
     val context = LocalContext.current
+    val appPrefs = remember { context.getSharedPreferences("zevblock_app_prefs", Context.MODE_PRIVATE) }
+    var showPurposeDisclaimer by remember {
+        mutableStateOf(!appPrefs.getBoolean("has_seen_purpose_disclaimer", false))
+    }
     var selectedTab by remember { mutableIntStateOf(0) }
 
     var status by remember { mutableStateOf(deviceAdminManager.getStatus()) }
@@ -224,6 +229,15 @@ fun ShieldGuardApp(
         ruleCount = DnsBlockerVpnService.blocklistMatcher.getRuleCount()
         statsManager.refreshStats()
         customRuleManager.refreshPendingRemovals()
+    }
+
+    if (showPurposeDisclaimer) {
+        WelcomePurposeDialog(
+            onDismiss = {
+                appPrefs.edit().putBoolean("has_seen_purpose_disclaimer", true).apply()
+                showPurposeDisclaimer = false
+            }
+        )
     }
 
     Scaffold(
@@ -427,7 +441,8 @@ fun ShieldGuardApp(
                     isVpnRunning = isVpnRunning,
                     isAccessibilityActive = isAccessibilityActive,
                     onLaunchVpnPrepare = { launchVpn() },
-                    onNavigateToPartnerLock = { selectedTab = 2 }
+                    onNavigateToPartnerLock = { selectedTab = 2 },
+                    onViewPurposeMission = { showPurposeDisclaimer = true }
                 )
 
                 4 -> ToolsSimulatorScreen(
@@ -438,6 +453,9 @@ fun ShieldGuardApp(
                             message = "This simulated alert demonstrates the Jetpack Compose warning overlay triggered when an anti-bypass violation occurs.",
                             detail = "Triggered from Developer Tools"
                         )
+                    },
+                    onViewPurposeMission = {
+                        showPurposeDisclaimer = true
                     }
                 )
             }
@@ -449,7 +467,10 @@ fun ShieldGuardApp(
  * Developer & Simulation tools for validating DNS sinkhole and browser scraper evaluations.
  */
 @Composable
-fun ToolsSimulatorScreen(onTestOverlay: () -> Unit) {
+fun ToolsSimulatorScreen(
+    onTestOverlay: () -> Unit,
+    onViewPurposeMission: () -> Unit = {}
+) {
     val scrollState = rememberScrollState()
 
     var domainInput by remember { mutableStateOf("www.google.com") }
@@ -466,6 +487,29 @@ fun ToolsSimulatorScreen(onTestOverlay: () -> Unit) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Protection Purpose Mission Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
+            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Protection Mission & Anti-Porn Safeguards", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimaryDark)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("View the core anti-pornography purpose dialog and privacy commitments.", fontSize = 12.sp, color = TextSecondaryDark)
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = onViewPurposeMission,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = ShieldTeal),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("View Protection Mission", fontWeight = FontWeight.Bold, color = ShieldNavyDark)
+                }
+            }
+        }
+
         // Overlay Preview Card
         Card(
             modifier = Modifier.fillMaxWidth(),

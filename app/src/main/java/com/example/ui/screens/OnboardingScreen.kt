@@ -88,7 +88,8 @@ fun OnboardingScreen(
     isVpnRunning: Boolean,
     isAccessibilityActive: Boolean,
     onLaunchVpnPrepare: () -> Unit,
-    onNavigateToPartnerLock: () -> Unit
+    onNavigateToPartnerLock: () -> Unit,
+    onViewPurposeMission: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -139,6 +140,25 @@ fun OnboardingScreen(
                             color = TextSecondaryDark
                         )
                     }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                OutlinedButton(
+                    onClick = onViewPurposeMission,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ShieldTeal)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Shield,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Protection Mission: Shield from Adult Content",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

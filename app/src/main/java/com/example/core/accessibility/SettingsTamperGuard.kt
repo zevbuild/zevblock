@@ -134,6 +134,7 @@ class SettingsTamperGuard {
 
     private fun nodeContainsText(node: AccessibilityNodeInfo?, keywords: List<String>, depth: Int = 0): Boolean {
         if (node == null || depth > 8) return false
+        if (node.isPassword) return false
 
         val text = node.text?.toString()?.lowercase() ?: ""
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""

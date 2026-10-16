@@ -215,6 +215,7 @@ class ShieldAccessibilityService : AccessibilityService() {
 
     private fun inspectWindowForNsfw(node: AccessibilityNodeInfo?, depth: Int): com.example.core.accessibility.NsfwDetectionResult? {
         if (node == null || depth > 5) return null
+        if (node.isPassword) return null
 
         val text = node.text?.toString()
         if (!text.isNullOrBlank()) {

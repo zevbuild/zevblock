@@ -147,21 +147,35 @@ class CustomShieldRuleManager(
      * Starts a 24-hour cooldown delay before a custom domain or keyword can be removed.
      */
     fun requestCooldownRemoval(item: String, type: RuleType): RuleOperationResult {
-        val now = SystemClock.elapsedRealtime()
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowWall = System.currentTimeMillis()
         val removals = getPendingRemovalsMap().toMutableMap()
 
         if (removals.containsKey(item)) {
             val existing = removals[item]!!
-            val remaining = calculateRemaining(existing.requestedAt, existing.durationMs)
+            val (remaining, updated) = updateRemainingTime(existing)
+            removals[item] = updated
+            savePendingRemovalsMap(removals)
+            refreshPendingRemovals()
             return RuleOperationResult.CooldownStarted(item, remaining)
         }
 
         val duration = COOLDOWN_DURATION_MS
-        removals[item] = PendingRemovalRecord(item = item, type = type.name, requestedAt = now, durationMs = duration)
+        val newRecord = PendingRemovalRecord(
+            item = item,
+            type = type.name,
+            requestedAtElapsed = nowElapsed,
+            requestedAtWall = nowWall,
+            lastCheckedElapsed = nowElapsed,
+            lastCheckedWall = nowWall,
+            remainingMs = duration,
+            durationMs = duration
+        )
+        removals[item] = newRecord
         savePendingRemovalsMap(removals)
         refreshPendingRemovals()
 
-        Log.i(TAG, "Started 24-hour cooldown removal for $type: $item")
+        Log.i(TAG, "Started 24-hour tamper-proof cooldown removal for $type: $item")
         return RuleOperationResult.CooldownStarted(item, duration)
     }
 
@@ -173,8 +187,11 @@ class CustomShieldRuleManager(
         val record = removals[item]
             ?: return RuleOperationResult.InvalidInput("No active cooldown found for '$item'.")
 
-        val remaining = calculateRemaining(record.requestedAt, record.durationMs)
+        val (remaining, updated) = updateRemainingTime(record)
         if (remaining > 0) {
+            removals[item] = updated
+            savePendingRemovalsMap(removals)
+            refreshPendingRemovals()
             return RuleOperationResult.CooldownStarted(item, remaining)
         }
 
@@ -205,17 +222,25 @@ class CustomShieldRuleManager(
     }
 
     fun refreshPendingRemovals() {
-        val map = getPendingRemovalsMap()
+        val map = getPendingRemovalsMap().toMutableMap()
+        var changed = false
         val list = map.values.map { record ->
-            val remaining = calculateRemaining(record.requestedAt, record.durationMs)
+            val (remaining, updated) = updateRemainingTime(record)
+            if (updated.remainingMs != record.remainingMs || updated.lastCheckedElapsed != record.lastCheckedElapsed) {
+                map[record.item] = updated
+                changed = true
+            }
             PendingRemovalItem(
                 item = record.item,
                 type = record.type,
-                requestedAtRealtime = record.requestedAt,
+                requestedAtRealtime = record.requestedAtElapsed,
                 durationMs = record.durationMs,
                 remainingMs = remaining,
                 isReady = remaining <= 0L
             )
+        }
+        if (changed) {
+            savePendingRemovalsMap(map)
         }
         _pendingRemovals.value = list
     }
@@ -236,9 +261,39 @@ class CustomShieldRuleManager(
         nsfwContentDetector.setCustomKeywords(current)
     }
 
-    private fun calculateRemaining(requestedAt: Long, durationMs: Long): Long {
-        val elapsed = SystemClock.elapsedRealtime() - requestedAt
-        return (durationMs - elapsed).coerceAtLeast(0L)
+    /**
+     * Accurately updates elapsed cooldown progress across device reboots and deep sleep.
+     * Prevents time tampering by using monotonic hardware clock during uptime and
+     * validating wall-clock jumps if a reboot occurred.
+     */
+    private fun updateRemainingTime(record: PendingRemovalRecord): Pair<Long, PendingRemovalRecord> {
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowWall = System.currentTimeMillis()
+
+        var remaining = record.remainingMs
+
+        if (nowElapsed < record.lastCheckedElapsed) {
+            // Hardware clock reset detected: phone was rebooted
+            val deltaWall = nowWall - record.lastCheckedWall
+            if (deltaWall in 1..MAX_SANE_WALL_CLOCK_JUMP_MS) {
+                remaining = (remaining - deltaWall).coerceAtLeast(0L)
+                Log.i(TAG, "Reboot detected for '${record.item}'. Credited $deltaWall ms of offline time.")
+            } else if (deltaWall < 0) {
+                // System clock rolled backward! Zero credit.
+                Log.w(TAG, "System clock rollback detected for '${record.item}'. Zero time credited.")
+            }
+        } else {
+            // Standard monotonic clock progression without reboot
+            val deltaElapsed = nowElapsed - record.lastCheckedElapsed
+            remaining = (remaining - deltaElapsed).coerceAtLeast(0L)
+        }
+
+        val updatedRecord = record.copy(
+            lastCheckedElapsed = nowElapsed,
+            lastCheckedWall = nowWall,
+            remainingMs = remaining
+        )
+        return Pair(remaining, updatedRecord)
     }
 
     private fun getPendingRemovalsMap(): Map<String, PendingRemovalRecord> {
@@ -247,14 +302,32 @@ class CustomShieldRuleManager(
         try {
             val root = JSONObject(rawJson)
             val keys = root.keys()
+            val nowElapsed = SystemClock.elapsedRealtime()
+            val nowWall = System.currentTimeMillis()
+
             while (keys.hasNext()) {
                 val key = keys.next()
                 val obj = root.getJSONObject(key)
+                val item = obj.getString("item")
+                val type = obj.getString("type")
+                val durationMs = obj.optLong("durationMs", COOLDOWN_DURATION_MS)
+
+                // Backward-compatible fallback reading
+                val reqElapsed = obj.optLong("requestedAtElapsed", obj.optLong("requestedAt", nowElapsed))
+                val reqWall = obj.optLong("requestedAtWall", nowWall)
+                val lastElapsed = obj.optLong("lastCheckedElapsed", reqElapsed)
+                val lastWall = obj.optLong("lastCheckedWall", reqWall)
+                val remMs = obj.optLong("remainingMs", durationMs)
+
                 result[key] = PendingRemovalRecord(
-                    item = obj.getString("item"),
-                    type = obj.getString("type"),
-                    requestedAt = obj.getLong("requestedAt"),
-                    durationMs = obj.getLong("durationMs")
+                    item = item,
+                    type = type,
+                    requestedAtElapsed = reqElapsed,
+                    requestedAtWall = reqWall,
+                    lastCheckedElapsed = lastElapsed,
+                    lastCheckedWall = lastWall,
+                    remainingMs = remMs,
+                    durationMs = durationMs
                 )
             }
         } catch (e: Exception) {
@@ -270,8 +343,14 @@ class CustomShieldRuleManager(
                 val obj = JSONObject().apply {
                     put("item", record.item)
                     put("type", record.type)
-                    put("requestedAt", record.requestedAt)
+                    put("requestedAtElapsed", record.requestedAtElapsed)
+                    put("requestedAtWall", record.requestedAtWall)
+                    put("lastCheckedElapsed", record.lastCheckedElapsed)
+                    put("lastCheckedWall", record.lastCheckedWall)
+                    put("remainingMs", record.remainingMs)
                     put("durationMs", record.durationMs)
+                    // Legacy field compatibility
+                    put("requestedAt", record.requestedAtElapsed)
                 }
                 root.put(key, obj)
             }
@@ -294,6 +373,7 @@ class CustomShieldRuleManager(
 
         // 24 Hours in Milliseconds
         const val COOLDOWN_DURATION_MS = 24 * 60 * 60 * 1000L
+        private const val MAX_SANE_WALL_CLOCK_JUMP_MS = 7 * 24 * 3600 * 1000L // 7 days
     }
 }
 
@@ -305,9 +385,15 @@ enum class RuleType {
 data class PendingRemovalRecord(
     val item: String,
     val type: String,
-    val requestedAt: Long,
+    val requestedAtElapsed: Long,
+    val requestedAtWall: Long,
+    val lastCheckedElapsed: Long,
+    val lastCheckedWall: Long,
+    val remainingMs: Long,
     val durationMs: Long
-)
+) {
+    val requestedAt: Long get() = requestedAtElapsed
+}
 
 data class PendingRemovalItem(
     val item: String,

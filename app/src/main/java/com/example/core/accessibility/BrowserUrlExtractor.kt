@@ -105,6 +105,7 @@ class BrowserUrlExtractor {
 
     private fun findUrlByHeuristic(node: AccessibilityNodeInfo?, depth: Int): String? {
         if (node == null || depth > 8) return null
+        if (node.isPassword) return null
 
         val className = node.className?.toString() ?: ""
         if (className.contains("EditText", ignoreCase = true)) {

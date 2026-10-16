@@ -169,14 +169,41 @@ object AppUpdateManager {
     }
 
     /**
+     * Validates that download URLs originate exclusively from official GitHub infrastructure over HTTPS.
+     */
+    fun isValidDownloadUrl(url: String): Boolean {
+        return try {
+            val parsed = Uri.parse(url)
+            val host = parsed.host?.lowercase() ?: return false
+            val scheme = parsed.scheme?.lowercase() ?: return false
+            scheme == "https" && (
+                host == "github.com" ||
+                host == "api.github.com" ||
+                host == "objects.githubusercontent.com" ||
+                host.endsWith(".github.com") ||
+                host.endsWith(".githubusercontent.com")
+            )
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
      * Downloads the APK file using Android's DownloadManager.
      */
     fun downloadApk(context: Context, release: AppReleaseInfo) {
-        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+        if (!isValidDownloadUrl(release.downloadUrl)) {
+            _updateStatus.value = UpdateStatus.Error("Untrusted update download URL rejected for security.")
+            return
+        }
+
+        val appContext = context.applicationContext
+        val downloadManager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
             ?: return
 
-        val fileName = "ZevBlock-${release.tagName}.apk"
-        val destination = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
+        val safeTag = release.tagName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val fileName = "ZevBlock-$safeTag.apk"
+        val destination = File(appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
         if (destination.exists()) {
             destination.delete()
         }
@@ -199,18 +226,18 @@ object AppUpdateManager {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
                 if (id == activeDownloadId) {
                     _updateStatus.value = UpdateStatus.ReadyToInstall(destination)
-                    installApk(recvContext, destination)
+                    installApk(appContext, destination)
                     try {
-                        recvContext.unregisterReceiver(this)
+                        appContext.unregisterReceiver(this)
                     } catch (_: Exception) {}
                 }
             }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_NOT_EXPORTED)
+            appContext.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_NOT_EXPORTED)
         } else {
-            context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+            appContext.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
         }
     }
 

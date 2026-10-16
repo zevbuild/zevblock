@@ -404,4 +404,30 @@ class ExampleRobolectricTest {
         assertTrue(statsManager.resetStatsWithPartner(validTotp))
         assertEquals(0L, statsManager.allTimeTotalBlocks.value)
     }
+
+    @Test
+    fun `test first launch purpose disclaimer preference`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = context.getSharedPreferences("zevblock_app_prefs", Context.MODE_PRIVATE)
+
+        // Initially not seen
+        assertFalse(prefs.getBoolean("has_seen_purpose_disclaimer", false))
+
+        // User acknowledges dialog
+        prefs.edit().putBoolean("has_seen_purpose_disclaimer", true).commit()
+        assertTrue(prefs.getBoolean("has_seen_purpose_disclaimer", false))
+    }
+
+    @Test
+    fun `test app update manager download url validation`() {
+        // Valid GitHub release download URLs
+        assertTrue(com.example.core.updater.AppUpdateManager.isValidDownloadUrl("https://github.com/zevbuild/zevblock/releases/download/v1.5-stable/ZevBlock-v1.5-stable.apk"))
+        assertTrue(com.example.core.updater.AppUpdateManager.isValidDownloadUrl("https://objects.githubusercontent.com/github-production-release-asset-2e65be/12345/app.apk"))
+
+        // Reject insecure HTTP or third-party/malicious domains
+        assertFalse(com.example.core.updater.AppUpdateManager.isValidDownloadUrl("http://github.com/zevbuild/zevblock/releases/download/v1.5/app.apk"))
+        assertFalse(com.example.core.updater.AppUpdateManager.isValidDownloadUrl("https://malicious-site.com/fake-update.apk"))
+        assertFalse(com.example.core.updater.AppUpdateManager.isValidDownloadUrl("javascript:alert(1)"))
+        assertFalse(com.example.core.updater.AppUpdateManager.isValidDownloadUrl(""))
+    }
 }
