@@ -72,7 +72,7 @@ class SecurityWarningOverlayActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val alertType = intent.getStringExtra(EXTRA_ALERT_TYPE) ?: "Security Restriction"
-        val message = intent.getStringExtra(EXTRA_MESSAGE) ?: "This action has been restricted by ShieldGuard OS."
+        val message = intent.getStringExtra(EXTRA_MESSAGE) ?: "This action has been restricted by ZevBlock."
         val detail = intent.getStringExtra(EXTRA_DETAIL) ?: ""
 
         setContent {

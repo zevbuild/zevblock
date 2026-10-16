@@ -86,8 +86,8 @@ class TamperLockManager(private val context: Context) {
      */
     fun getPartnerTotpUri(partnerLabel: String = "Accountability Partner"): String? {
         val secret = getPartnerSecret() ?: return null
-        val encodedLabel = URLEncoder.encode("ShieldGuard OS:$partnerLabel", "UTF-8")
-        val encodedIssuer = URLEncoder.encode("ShieldGuard OS", "UTF-8")
+        val encodedLabel = URLEncoder.encode("ZevBlock:$partnerLabel", "UTF-8")
+        val encodedIssuer = URLEncoder.encode("ZevBlock", "UTF-8")
         return "otpauth://totp/$encodedLabel?secret=$secret&issuer=$encodedIssuer&algorithm=SHA1&digits=6&period=30"
     }
 

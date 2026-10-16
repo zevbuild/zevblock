@@ -207,7 +207,7 @@ fun ShieldGuardApp(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "ShieldGuard OS",
+                                text = "ZevBlock",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 17.sp,
                                 color = TextPrimaryDark

@@ -296,8 +296,8 @@ fun RestrictedSettingsBypassCard(context: Context, isAccessibilityActive: Boolea
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     BypassStepRow(
                         stepNumber = "1",
-                        title = "Open ShieldGuard App Info",
-                        description = "Tap the button below or go to Settings > Apps > ShieldGuard OS."
+                        title = "Open ZevBlock App Info",
+                        description = "Tap the button below or go to Settings > Apps > ZevBlock."
                     )
                     BypassStepRow(
                         stepNumber = "2",
@@ -407,7 +407,7 @@ fun AccessibilityPermissionCard(context: Context, isActive: Boolean) {
 
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "Inspects browser address bars to detect NSFW queries and prevents force-stopping or uninstalling ShieldGuard OS.",
+                text = "Inspects browser address bars to detect NSFW queries and prevents force-stopping or uninstalling ZevBlock.",
                 fontSize = 12.sp,
                 color = TextSecondaryDark
             )

@@ -25,7 +25,7 @@ class SettingsTamperGuard {
     }
 
     var isEnabled: Boolean = true
-    var targetAppName: String = "ShieldGuard OS"
+    var targetAppName: String = "ZevBlock"
     var targetPackageName: String = "com.example"
 
     /**
