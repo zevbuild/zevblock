@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">ShieldGuard OS</string>
+    <string name="accessibility_service_label">ShieldGuard Anti-Tamper Service</string>
+    <string name="accessibility_service_desc">Protects system settings, prevents unauthorized force stops, and enforces screen-time/anti-tamper safeguards.</string>
+    <string name="device_admin_label">ShieldGuard OS Device Protection</string>
+    <string name="device_admin_desc">Enforces uninstall protection, Always-On VPN lockdown, Safe Mode prevention, and Private DNS tampering blocks.</string>
+    <string name="vpn_service_label">ShieldGuard DNS Sinkhole</string>
+</resources>

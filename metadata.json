@@ -1,0 +1,6 @@
+{
+  "name": "ShieldGuard OS",
+  "description": "Open-source anti-bypass protection core, device owner policy manager, and DNS sinkhole.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
