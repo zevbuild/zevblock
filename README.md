@@ -5,7 +5,7 @@
 </p>
 
 [![Build & Release ZevBlock APK](https://github.com/zevbuild/zevblock/actions/workflows/build.yml/badge.svg)](https://github.com/zevbuild/zevblock/actions/workflows/build.yml)
-[![Latest Release](https://img.shields.io/github/v/release/zevbuild/zevblock?label=Release&color=00E676)](https://github.com/zevbuild/zevblock/releases/tag/v1.6-stable)
+[![Latest Release](https://img.shields.io/github/v/release/zevbuild/zevblock?label=Release&color=00E676)](https://github.com/zevbuild/zevblock/releases/tag/v1.7-stable)
 [![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B%20%28API%2024--36%29-00B0FF)](https://developer.android.com)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device%20%7C%20Zero%20Telemetry-green)](https://github.com/zevbuild/zevblock)
 [![License](https://img.shields.io/badge/License-Open%20Source-blue)](LICENSE)
@@ -19,8 +19,8 @@ ZevBlock is a hardened, battery-efficient Android protection and accountability 
 Pre-compiled APKs are built directly by automated GitHub CI:
 
 ### Option A: From GitHub Releases (Recommended)
-1. Navigate to [**GitHub Releases**](https://github.com/zevbuild/zevblock/releases/tag/v1.6-stable).
-2. Under the latest **v1.6-stable** release, download `ZevBlock-v1.0-debug.apk` or `ZevBlock-latest.apk`.
+1. Navigate to [**GitHub Releases**](https://github.com/zevbuild/zevblock/releases/tag/v1.7-stable).
+2. Under the latest **v1.7-stable** release, download `ZevBlock-v1.0-debug.apk` or `ZevBlock-latest.apk`.
 3. Open the downloaded file on your Android device to install.
 
 ### Option B: From GitHub Actions CI Artifacts
@@ -140,7 +140,7 @@ To unlock hardware-level anti-uninstall protection and Safe Mode blocking, provi
 adb devices
 
 # 3. Provision ZevBlock as Device Owner
-adb shell dpm set-device-owner com.example/.receiver.ShieldDeviceAdminReceiver
+adb shell dpm set-device-owner com.zevbuild.zevblock/.receiver.ShieldDeviceAdminReceiver
 ```
 
 > [!NOTE]
@@ -149,7 +149,7 @@ adb shell dpm set-device-owner com.example/.receiver.ShieldDeviceAdminReceiver
 ### 2. Activating via Shizuku / Root
 If your device is rooted or has Shizuku configured:
 ```bash
-dpm set-device-owner com.example/.receiver.ShieldDeviceAdminReceiver
+dpm set-device-owner com.zevbuild.zevblock/.receiver.ShieldDeviceAdminReceiver
 ```
 
 ### 3. Bypassing Android 13+ "Restricted Settings" for Sideloaded APKs
@@ -170,7 +170,7 @@ The repository contains an automated test suite verifying core protocols:
 ./gradlew :app:testDebugUnitTest --stacktrace
 ```
 
-Tested components in [`ZevBlockCoreTest.kt`](app/src/test/java/com/example/ZevBlockCoreTest.kt) include:
+Tested components in [`ZevBlockCoreTest.kt`](app/src/test/java/com/zevbuild/zevblock/ZevBlockCoreTest.kt) include:
 * Adult search query parameter extraction across Google, YouTube, Bing, Yahoo, and DuckDuckGo
 * Adult TLD (`.xxx`, `.adult`) and explicit path segment detection (`/porn/`, `/hentai/`)
 * False-positive prevention for safe words ("essex", "sussex", "analysis", "canal", "documentary")
@@ -188,7 +188,7 @@ zevblock/
 ├── app/src/
 │   ├── main/
 │   │   ├── AndroidManifest.xml                        # Service, receiver, and permission declarations
-│   │   ├── java/com/example/
+│   │   ├── java/com/zevbuild/zevblock/
 │   │   │   ├── MainActivity.kt                        # Primary Material 3 App Shell & Navigation
 │   │   │   ├── core/
 │   │   │   │   ├── admin/
@@ -233,7 +233,7 @@ zevblock/
 │   │       │   └── device_admin_rules.xml             # Device administrator policy declarations
 │   │       └── values/
 │   │           └── strings.xml                        # Localized labels and string resources
-│   └── test/java/com/example/
+│   └── test/java/com/zevbuild/zevblock/
 │       └── ZevBlockCoreTest.kt                        # Core unit test suite
 ├── .github/workflows/
 │   └── build.yml                                      # Automated CI build & release workflow
