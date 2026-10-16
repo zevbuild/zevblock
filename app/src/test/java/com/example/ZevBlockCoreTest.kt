@@ -213,6 +213,28 @@ class ZevBlockCoreTest {
     }
 
     // =========================================================================
+    // 6. GitHub In-App Auto-Update Version Comparison Tests
+    // =========================================================================
+    @Test
+    fun appUpdateManager_correctlyDetectsNewerVersions() {
+        assertTrue(com.example.core.updater.AppUpdateManager.isNewerVersion("1.1", "v1.2-stable"))
+        assertTrue(com.example.core.updater.AppUpdateManager.isNewerVersion("1.0", "v1.1"))
+        assertTrue(com.example.core.updater.AppUpdateManager.isNewerVersion("1.1", "v2.0"))
+        assertTrue(com.example.core.updater.AppUpdateManager.isNewerVersion("1.1.0", "v1.1.1"))
+
+        assertFalse(com.example.core.updater.AppUpdateManager.isNewerVersion("1.2", "v1.2-stable"))
+        assertFalse(com.example.core.updater.AppUpdateManager.isNewerVersion("1.2", "v1.1"))
+        assertFalse(com.example.core.updater.AppUpdateManager.isNewerVersion("2.0", "v1.9"))
+    }
+
+    @Test
+    fun appUpdateManager_cleansVersionStringProperly() {
+        assertEquals("1.2", com.example.core.updater.AppUpdateManager.cleanVersion("v1.2-stable"))
+        assertEquals("2.0", com.example.core.updater.AppUpdateManager.cleanVersion("V2.0"))
+        assertEquals("1.3.1", com.example.core.updater.AppUpdateManager.cleanVersion("v1.3.1-beta2"))
+    }
+
+    // =========================================================================
     // Helper Methods
     // =========================================================================
     private fun createSampleDnsQuery(domain: String): ByteArray {

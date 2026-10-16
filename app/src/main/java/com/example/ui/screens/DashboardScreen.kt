@@ -39,18 +39,26 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.example.core.updater.AppUpdateManager
+import com.example.core.updater.UpdateStatus
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -102,6 +110,12 @@ fun DashboardScreen(
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val updateStatus by AppUpdateManager.updateStatus.collectAsState()
+
+    LaunchedEffect(Unit) {
+        AppUpdateManager.checkForUpdate(context)
+    }
 
     val isFullDefenseActive = isVpnRunning && isAccessibilityActive && deviceOwnerStatus.isDeviceOwner
 
@@ -124,6 +138,86 @@ fun DashboardScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // New Update Prompt Card
+        if (updateStatus is UpdateStatus.UpdateAvailable) {
+            val release = (updateStatus as UpdateStatus.UpdateAvailable).release
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("app_update_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = ShieldNavyDark),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(ShieldTeal)
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.SystemUpdate,
+                            contentDescription = "Update Available",
+                            tint = ShieldGreen,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "New Update: ${release.tagName}",
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark,
+                            fontSize = 15.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = release.releaseNotes.take(160),
+                        color = TextSecondaryDark,
+                        fontSize = 12.sp,
+                        maxLines = 3
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { AppUpdateManager.downloadApk(context, release) },
+                            colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Download & Install", color = ShieldGreen, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = { AppUpdateManager.dismissUpdate() }
+                        ) {
+                            Text("Later", color = TextMutedDark)
+                        }
+                    }
+                }
+            }
+        } else if (updateStatus is UpdateStatus.Downloading) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = ShieldTeal,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Downloading latest release from GitHub...",
+                        color = TextPrimaryDark,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
         // Hero Shield Card
         Card(
             modifier = Modifier
@@ -415,6 +509,59 @@ fun DashboardScreen(
                                 Text(item.subtitle, fontSize = 11.sp, color = TextSecondaryDark)
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // Release Channel & Updates Footer Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
+            border = CardDefaults.outlinedCardBorder().copy(
+                brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark)
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        text = "ZevBlock Release Channel",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = TextPrimaryDark
+                    )
+                    Text(
+                        text = "Version: v${AppUpdateManager.getInstalledVersionName(context)} • GitHub Stable",
+                        fontSize = 11.sp,
+                        color = ShieldTeal
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val result = AppUpdateManager.checkForUpdate(context)
+                            if (result is UpdateStatus.UpToDate) {
+                                Toast.makeText(context, "ZevBlock is up to date!", Toast.LENGTH_SHORT).show()
+                            } else if (result is UpdateStatus.Error) {
+                                Toast.makeText(context, "Update check: ${result.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ShieldNavyDark),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (updateStatus is UpdateStatus.Checking) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = ShieldTeal, strokeWidth = 2.dp)
+                    } else {
+                        Text("Check Updates", fontSize = 11.sp, color = ShieldTeal)
                     }
                 }
             }
