@@ -82,6 +82,28 @@ class ExampleRobolectricTest {
     }
 
     @Test
+    fun `test temporary bypass start and cancel`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val lockManager = TamperLockManager(context)
+
+        lockManager.cancelTemporaryBypass()
+        assertFalse(lockManager.isBypassActive())
+        assertFalse(TamperLockManager.isBypassActive(context))
+
+        lockManager.startTemporaryBypass(15 * 60 * 1000L)
+        assertTrue(lockManager.isBypassActive())
+        assertTrue(TamperLockManager.isBypassActive(context))
+
+        val remaining = lockManager.getRemainingBypassMs()
+        assertTrue(remaining in 1L..(15 * 60 * 1000L))
+
+        lockManager.cancelTemporaryBypass()
+        assertFalse(lockManager.isBypassActive())
+        assertFalse(TamperLockManager.isBypassActive(context))
+        assertEquals(0L, lockManager.getRemainingBypassMs())
+    }
+
+    @Test
     fun `test device admin manager commands`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val adminManager = DeviceAdminManager(context)

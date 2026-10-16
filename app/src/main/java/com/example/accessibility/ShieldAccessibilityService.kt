@@ -9,6 +9,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.example.core.accessibility.BrowserUrlExtractor
 import com.example.core.accessibility.NsfwContentDetector
 import com.example.core.accessibility.SettingsTamperGuard
+import com.example.core.security.TamperLockManager
 import com.example.ui.overlay.OverlayManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +41,11 @@ class ShieldAccessibilityService : AccessibilityService() {
         if (event == null) return
 
         val packageName = event.packageName?.toString() ?: return
+
+        // Respect active partner temporary bypass session
+        if (TamperLockManager.isBypassActive(this)) {
+            return
+        }
 
         try {
             val rootNode: AccessibilityNodeInfo? = rootInActiveWindow

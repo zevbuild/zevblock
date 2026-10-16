@@ -239,6 +239,142 @@ class TamperLockManager(private val context: Context) {
     }
 
     // =========================================================================
+    // SECTION 2B: TEMPORARY BYPASS MANAGER (Partner TOTP Authorized)
+    // =========================================================================
+
+    /**
+     * Attempts to activate a temporary bypass window using the partner's TOTP code.
+     * Returns true if the code was verified and bypass was activated.
+     */
+    @Synchronized
+    fun activateBypassWithTotp(totpCode: String, durationMs: Long): Boolean {
+        if (!verifyPartnerTotp(totpCode)) {
+            Log.w(TAG, "Cannot activate bypass: invalid partner TOTP code.")
+            return false
+        }
+        startTemporaryBypass(durationMs)
+        return true
+    }
+
+    /**
+     * Starts a temporary bypass countdown of duration [durationMs].
+     * Monotonic clock ensures the user cannot manipulate the duration by altering the system clock.
+     */
+    @Synchronized
+    fun startTemporaryBypass(durationMs: Long) {
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowWall = System.currentTimeMillis()
+
+        prefs.edit()
+            .putBoolean(KEY_BYPASS_ACTIVE, true)
+            .putLong(KEY_BYPASS_DURATION, durationMs)
+            .putLong(KEY_BYPASS_REMAINING, durationMs)
+            .putLong(KEY_BYPASS_LAST_ELAPSED, nowElapsed)
+            .putLong(KEY_BYPASS_LAST_WALL, nowWall)
+            .putString(KEY_BYPASS_SIGNATURE, createBypassSignature(durationMs, durationMs, nowElapsed, nowWall))
+            .apply()
+
+        cachedBypassActive = true
+        Log.i(TAG, "Temporary bypass activated for $durationMs ms ($durationMs / 60000 min)")
+    }
+
+    /**
+     * Returns the remaining milliseconds for the active temporary bypass.
+     * Automatically deactivates bypass when elapsed time reaches zero.
+     */
+    @Synchronized
+    fun getRemainingBypassMs(): Long {
+        if (!isBypassActive()) return 0L
+
+        if (!verifyBypassSignature()) {
+            Log.e(TAG, "Bypass signature validation failed! Cancelling bypass.")
+            cancelTemporaryBypass()
+            return 0L
+        }
+
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowWall = System.currentTimeMillis()
+
+        val lastElapsed = prefs.getLong(KEY_BYPASS_LAST_ELAPSED, nowElapsed)
+        val lastWall = prefs.getLong(KEY_BYPASS_LAST_WALL, nowWall)
+        var remaining = prefs.getLong(KEY_BYPASS_REMAINING, 0L)
+
+        if (nowElapsed < lastElapsed) {
+            val deltaWall = nowWall - lastWall
+            if (deltaWall in 1..MAX_SANE_WALL_CLOCK_JUMP_MS) {
+                remaining = max(0L, remaining - deltaWall)
+            } else if (deltaWall < 0) {
+                remaining = 0L
+            }
+        } else {
+            val deltaElapsed = nowElapsed - lastElapsed
+            remaining = max(0L, remaining - deltaElapsed)
+        }
+
+        if (remaining <= 0L) {
+            cancelTemporaryBypass()
+            return 0L
+        }
+
+        val duration = prefs.getLong(KEY_BYPASS_DURATION, remaining)
+        prefs.edit()
+            .putLong(KEY_BYPASS_REMAINING, remaining)
+            .putLong(KEY_BYPASS_LAST_ELAPSED, nowElapsed)
+            .putLong(KEY_BYPASS_LAST_WALL, nowWall)
+            .putString(KEY_BYPASS_SIGNATURE, createBypassSignature(duration, remaining, nowElapsed, nowWall))
+            .apply()
+
+        return remaining
+    }
+
+    /**
+     * Returns true if a temporary bypass is currently running.
+     */
+    fun isBypassActive(): Boolean {
+        val active = prefs.getBoolean(KEY_BYPASS_ACTIVE, false)
+        cachedBypassActive = active
+        return active
+    }
+
+    /**
+     * Cancels the temporary bypass early and immediately restores all protections.
+     */
+    @Synchronized
+    fun cancelTemporaryBypass() {
+        prefs.edit()
+            .putBoolean(KEY_BYPASS_ACTIVE, false)
+            .putLong(KEY_BYPASS_REMAINING, 0L)
+            .remove(KEY_BYPASS_SIGNATURE)
+            .apply()
+        cachedBypassActive = false
+        Log.i(TAG, "Temporary bypass terminated: protections fully re-engaged.")
+    }
+
+    private fun createBypassSignature(
+        duration: Long,
+        remaining: Long,
+        lastElapsed: Long,
+        lastWall: Long
+    ): String {
+        val payload = "BYPASS:D:$duration|R:$remaining|E:$lastElapsed|W:$lastWall"
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(getOrCreateDeviceKey(), "HmacSHA256"))
+        val sig = mac.doFinal(payload.toByteArray(Charsets.UTF_8))
+        return sig.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun verifyBypassSignature(): Boolean {
+        val duration = prefs.getLong(KEY_BYPASS_DURATION, -1L)
+        val remaining = prefs.getLong(KEY_BYPASS_REMAINING, -1L)
+        val lastElapsed = prefs.getLong(KEY_BYPASS_LAST_ELAPSED, -1L)
+        val lastWall = prefs.getLong(KEY_BYPASS_LAST_WALL, -1L)
+        val storedSig = prefs.getString(KEY_BYPASS_SIGNATURE, null) ?: return false
+
+        val computedSig = createBypassSignature(duration, remaining, lastElapsed, lastWall)
+        return computedSig.equals(storedSig, ignoreCase = true)
+    }
+
+    // =========================================================================
     // SECTION 3: CRYPTOGRAPHIC INTEGRITY SEALING
     // =========================================================================
 
@@ -351,6 +487,10 @@ class TamperLockManager(private val context: Context) {
         const val COOLDOWN_1_HOUR_MS = 3_600_000L
         const val COOLDOWN_24_HOURS_MS = 86_400_000L
 
+        const val BYPASS_15_MIN_MS = 15 * 60 * 1000L
+        const val BYPASS_30_MIN_MS = 30 * 60 * 1000L
+        const val BYPASS_1_HOUR_MS = 60 * 60 * 1000L
+
         private const val MAX_SANE_WALL_CLOCK_JUMP_MS = 7 * 24 * 3600 * 1000L // 7 days
 
         private const val KEY_PARTNER_SECRET = "partner_totp_secret"
@@ -363,5 +503,20 @@ class TamperLockManager(private val context: Context) {
         private const val KEY_LAST_CHECKED_WALL = "cooldown_last_wall"
         private const val KEY_COOLDOWN_SIGNATURE = "cooldown_signature"
         private const val KEY_DEVICE_INTEGRITY_KEY = "device_integrity_key"
+
+        private const val KEY_BYPASS_ACTIVE = "bypass_active"
+        private const val KEY_BYPASS_DURATION = "bypass_duration"
+        private const val KEY_BYPASS_REMAINING = "bypass_remaining"
+        private const val KEY_BYPASS_LAST_ELAPSED = "bypass_last_elapsed"
+        private const val KEY_BYPASS_LAST_WALL = "bypass_last_wall"
+        private const val KEY_BYPASS_SIGNATURE = "bypass_signature"
+
+        @Volatile
+        private var cachedBypassActive: Boolean = false
+
+        fun isBypassActive(context: Context): Boolean {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            return prefs.getBoolean(KEY_BYPASS_ACTIVE, false)
+        }
     }
 }

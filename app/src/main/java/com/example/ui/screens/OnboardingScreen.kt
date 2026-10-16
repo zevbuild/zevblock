@@ -143,33 +143,69 @@ fun OnboardingScreen(
             }
         }
 
-        // STEP 1: Android 13+ Restricted Settings Bypass (Visual Guide)
-        RestrictedSettingsBypassCard(
-            context = context,
-            isAccessibilityActive = isAccessibilityActive
-        )
+        // SECTION 1: REQUIRED SETUP
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(ShieldGreen)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "REQUIRED SETUP (2 SIMPLE STEPS)",
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = ShieldGreen
+            )
+        }
 
-        // STEP 2: Accessibility Service Activation
+        // STEP 1: Accessibility Service Activation (with Android 13+ helper if inactive)
+        if (!isAccessibilityActive) {
+            RestrictedSettingsBypassCard(
+                context = context,
+                isAccessibilityActive = isAccessibilityActive
+            )
+        }
+
         AccessibilityPermissionCard(
             context = context,
             isActive = isAccessibilityActive
         )
 
-        // STEP 3: Local DNS Sinkhole VPN
+        // STEP 2: Local DNS Sinkhole VPN
         VpnPermissionCard(
             isRunning = isVpnRunning,
             onLaunchVpn = onLaunchVpnPrepare
         )
 
-        // STEP 4: Device Owner ADB Provisioning
-        DeviceOwnerSetupCard(
-            status = deviceOwnerStatus,
-            onCopyAdb = { cmd ->
-                copyToClipboard(context, cmd, "ADB command copied to clipboard!")
-            }
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // SECTION 2: OPTIONAL ADVANCED HARDENING
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(ShieldTeal)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "OPTIONAL HARDENING (NOT REQUIRED FOR BLOCKING)",
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = ShieldTeal
+            )
+        }
+
+        Text(
+            text = "The two steps above already block adult websites, keywords, and incognito across all apps! The features below are optional if you want extra anti-tamper locks.",
+            fontSize = 11.sp,
+            color = TextSecondaryDark,
+            lineHeight = 16.sp
         )
 
-        // STEP 5: Accountability Partner Pairing Prompt
+        // OPTIONAL STEP 3: Accountability Partner Pairing Prompt
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -179,24 +215,42 @@ fun OnboardingScreen(
             border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = ShieldTeal,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Next: Pair Accountability Partner",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = ShieldTeal,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Optional: Accountability Partner",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = ShieldTeal.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "OPTIONAL",
+                            color = ShieldTeal,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Generate a secure offline RFC 6238 QR code so your trusted friend can lock protection on their authenticator app.",
+                    text = "Let a trusted friend hold a 6-digit authenticator QR code so you cannot bypass protection or alter settings without their approval.",
                     fontSize = 12.sp,
                     color = TextSecondaryDark
                 )
@@ -215,6 +269,14 @@ fun OnboardingScreen(
                 }
             }
         }
+
+        // OPTIONAL STEP 4: Device Owner ADB Provisioning
+        DeviceOwnerSetupCard(
+            status = deviceOwnerStatus,
+            onCopyAdb = { cmd ->
+                copyToClipboard(context, cmd, "ADB command copied to clipboard!")
+            }
+        )
 
         Spacer(modifier = Modifier.height(20.dp))
     }

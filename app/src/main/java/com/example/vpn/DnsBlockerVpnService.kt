@@ -18,6 +18,7 @@ import com.example.core.dns.DnsPacketParser
 import com.example.core.dns.DomainBlocklistMatcher
 import com.example.core.dns.IpUdpPacket
 import com.example.core.dns.SafeSearchManager
+import com.example.core.security.TamperLockManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -128,31 +129,37 @@ open class DnsBlockerVpnService : VpnService() {
                 val total = _totalQueries.incrementAndGet()
                 totalQueriesCount.value = total
 
-                // 3. Step A: SafeSearch VIP Check
-                val safeSearchResponse = safeSearchManager.rewriteDns(dnsQuery)
-                if (safeSearchResponse != null) {
-                    val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(ipPacket, safeSearchResponse)
-                    synchronized(fos) {
-                        fos.write(outPacket)
+                val isBypassActive = TamperLockManager.isBypassActive(this@DnsBlockerVpnService)
+
+                // 3. Step A: SafeSearch VIP Check (Skipped during active temporary bypass)
+                if (!isBypassActive) {
+                    val safeSearchResponse = safeSearchManager.rewriteDns(dnsQuery)
+                    if (safeSearchResponse != null) {
+                        val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(ipPacket, safeSearchResponse)
+                        synchronized(fos) {
+                            fos.write(outPacket)
+                        }
+                        val safeCount = _safeSearchQueries.incrementAndGet()
+                        safeSearchQueriesCount.value = safeCount
+                        logDnsEvent(domain, "SafeSearch VIP", isBlocked = false, isSafeSearch = true, reason = "Forced Strict VIP")
+                        continue
                     }
-                    val safeCount = _safeSearchQueries.incrementAndGet()
-                    safeSearchQueriesCount.value = safeCount
-                    logDnsEvent(domain, "SafeSearch VIP", isBlocked = false, isSafeSearch = true, reason = "Forced Strict VIP")
-                    continue
                 }
 
-                // 4. Step B: Domain Blocklist Check
-                val blockResult = blocklistMatcher.isBlocked(domain)
-                if (blockResult.isBlocked) {
-                    val sinkholeResponse = DnsPacketBuilder.buildSinkholeResponse(dnsQuery, blockedIp = "0.0.0.0", isNxDomain = false)
-                    val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(ipPacket, sinkholeResponse)
-                    synchronized(fos) {
-                        fos.write(outPacket)
+                // 4. Step B: Domain Blocklist Check (Skipped during active temporary bypass)
+                if (!isBypassActive) {
+                    val blockResult = blocklistMatcher.isBlocked(domain)
+                    if (blockResult.isBlocked) {
+                        val sinkholeResponse = DnsPacketBuilder.buildSinkholeResponse(dnsQuery, blockedIp = "0.0.0.0", isNxDomain = false)
+                        val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(ipPacket, sinkholeResponse)
+                        synchronized(fos) {
+                            fos.write(outPacket)
+                        }
+                        val blockedCount = _blockedQueries.incrementAndGet()
+                        blockedQueriesCount.value = blockedCount
+                        logDnsEvent(domain, "Blocked", isBlocked = true, isSafeSearch = false, reason = blockResult.reason)
+                        continue
                     }
-                    val blockedCount = _blockedQueries.incrementAndGet()
-                    blockedQueriesCount.value = blockedCount
-                    logDnsEvent(domain, "Blocked", isBlocked = true, isSafeSearch = false, reason = blockResult.reason)
-                    continue
                 }
 
                 // 5. Step C: Forward clean query to Upstream Adult-Filtering DNS Resolver asynchronously

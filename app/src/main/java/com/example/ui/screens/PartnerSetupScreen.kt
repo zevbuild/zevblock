@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
@@ -44,6 +45,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -84,8 +86,12 @@ fun PartnerSetupScreen(
     tamperLockManager: TamperLockManager,
     isCooldownActive: Boolean,
     cooldownRemainingMs: Long,
+    isBypassActive: Boolean = false,
+    bypassRemainingMs: Long = 0L,
     onStartCooldown: (Long) -> Unit,
-    onCancelCooldown: () -> Unit
+    onCancelCooldown: () -> Unit,
+    onStartBypass: (Long) -> Unit = {},
+    onCancelBypass: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -396,6 +402,214 @@ fun PartnerSetupScreen(
                                 color = if (isSuccess) ShieldGreen else ShieldRed
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // Temporary Bypass Card (TOTP Authorized)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("partner_temporary_bypass_card"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
+            border = CardDefaults.outlinedCardBorder().copy(
+                brush = androidx.compose.ui.graphics.SolidColor(
+                    if (isBypassActive) ShieldAmber else ShieldTeal
+                )
+            )
+        ) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.LockOpen,
+                            contentDescription = null,
+                            tint = if (isBypassActive) ShieldAmber else ShieldTeal,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Temporary Bypass Window",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isBypassActive) ShieldAmber.copy(alpha = 0.15f) else ShieldTeal.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = if (isBypassActive) "ACTIVE" else "REQUIRES PARTNER",
+                            color = if (isBypassActive) ShieldAmber else ShieldTeal,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Temporarily suspend all keyword, adult domain, and incognito restrictions with your partner's 6-digit TOTP approval. Protections automatically re-engage when time expires.",
+                    fontSize = 12.sp,
+                    color = TextSecondaryDark,
+                    lineHeight = 17.sp
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                if (isBypassActive) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ShieldNavyDark)
+                            .border(1.dp, ShieldAmber, RoundedCornerShape(8.dp))
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "TEMPORARY BYPASS RUNNING",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ShieldAmber
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = formatMs(bypassRemainingMs),
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = ShieldAmber
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "All filters will automatically re-lock at 00:00",
+                                fontSize = 11.sp,
+                                color = TextSecondaryDark
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = onCancelBypass,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = ShieldRed),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("End Bypass & Re-Lock Protections Now", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                } else {
+                    var selectedDurationMs by remember { mutableLongStateOf(TamperLockManager.BYPASS_15_MIN_MS) }
+                    var bypassTotpInput by remember { mutableStateOf("") }
+                    var bypassError by remember { mutableStateOf<String?>(null) }
+
+                    Text(
+                        text = "Select Bypass Duration:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextSecondaryDark
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            TamperLockManager.BYPASS_15_MIN_MS to "15 Min",
+                            TamperLockManager.BYPASS_30_MIN_MS to "30 Min",
+                            TamperLockManager.BYPASS_1_HOUR_MS to "1 Hour"
+                        ).forEach { (ms, label) ->
+                            val isSelected = selectedDurationMs == ms
+                            OutlinedButton(
+                                onClick = { selectedDurationMs = ms },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSelected) ShieldTeal.copy(alpha = 0.2f) else Color.Transparent
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isSelected) ShieldTeal else ShieldBorderDark
+                                )
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) ShieldTeal else TextSecondaryDark
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = bypassTotpInput,
+                            onValueChange = {
+                                if (it.length <= 6) {
+                                    bypassTotpInput = it
+                                    bypassError = null
+                                }
+                            },
+                            placeholder = { Text("Partner 6-digit TOTP", color = TextMutedDark, fontSize = 12.sp) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ShieldTeal,
+                                unfocusedBorderColor = ShieldBorderDark,
+                                focusedTextColor = TextPrimaryDark,
+                                unfocusedTextColor = TextPrimaryDark
+                            )
+                        )
+
+                        Button(
+                            onClick = {
+                                val success = tamperLockManager.activateBypassWithTotp(bypassTotpInput, selectedDurationMs)
+                                if (success) {
+                                    onStartBypass(selectedDurationMs)
+                                    bypassTotpInput = ""
+                                    bypassError = null
+                                    Toast.makeText(context, "Temporary Bypass Activated!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    bypassError = "Invalid partner code! Check friend's authenticator app."
+                                }
+                            },
+                            modifier = Modifier.height(56.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = ShieldAmber),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Bypass", fontWeight = FontWeight.Bold, color = ShieldNavyDark)
+                        }
+                    }
+
+                    if (bypassError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = bypassError!!,
+                            color = ShieldRed,
+                            fontSize = 11.sp
+                        )
                     }
                 }
             }

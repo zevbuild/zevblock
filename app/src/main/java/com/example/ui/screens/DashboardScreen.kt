@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -100,13 +103,16 @@ fun DashboardScreen(
     isAccessibilityActive: Boolean,
     hasPartnerConfigured: Boolean,
     isCooldownActive: Boolean,
+    isBypassActive: Boolean = false,
+    bypassRemainingMs: Long = 0L,
     ruleCount: Int,
     dnsLogs: List<DnsLogEntry>,
     accessibilityLogs: List<AccessibilityLogEntry>,
     onToggleVpn: () -> Unit,
     onApplyLockdown: () -> Unit,
     onReleaseLockdown: () -> Unit,
-    onNavigateToSetup: () -> Unit
+    onNavigateToSetup: () -> Unit,
+    onCancelBypass: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -117,7 +123,7 @@ fun DashboardScreen(
         AppUpdateManager.checkForUpdate(context)
     }
 
-    val isFullDefenseActive = isVpnRunning && isAccessibilityActive && deviceOwnerStatus.isDeviceOwner
+    val isFullDefenseActive = isVpnRunning && isAccessibilityActive && deviceOwnerStatus.isDeviceOwner && !isBypassActive
 
     // Pulsing animation for shield
     val infiniteTransition = rememberInfiniteTransition(label = "shield_pulse")
@@ -138,6 +144,164 @@ fun DashboardScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Urgent Temporary Bypass Active Banner
+        if (isBypassActive) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("temporary_bypass_active_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = ShieldAmber.copy(alpha = 0.15f)),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(ShieldAmber)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = ShieldAmber, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("TEMPORARY BYPASS ACTIVE", fontWeight = FontWeight.Bold, color = ShieldAmber, fontSize = 13.sp)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        val sec = bypassRemainingMs / 1000
+                        val min = sec / 60
+                        val s = sec % 60
+                        Text(
+                            text = "Restrictions suspended • %02d:%02d left".format(min, s),
+                            color = TextPrimaryDark,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    Button(
+                        onClick = onCancelBypass,
+                        colors = ButtonDefaults.buttonColors(containerColor = ShieldRed),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Re-Lock", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        // Quick 2-Step Setup Card (Shown when core setup is incomplete)
+        if (!isAccessibilityActive || !isVpnRunning) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("quick_setup_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(ShieldAmber)
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = ShieldAmber, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Easy Setup: 2 Quick Steps to Protect Phone",
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark,
+                            fontSize = 13.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Step 1: Accessibility
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ShieldNavyDark)
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isAccessibilityActive) "✅ 1. Screen & Keyword Guard" else "⚠️ 1. Screen & Keyword Guard",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isAccessibilityActive) ShieldGreen else TextPrimaryDark
+                            )
+                            Text(
+                                text = if (isAccessibilityActive) "Active • Inspecting URLs & Incognito" else "Required • Tap below to enable",
+                                fontSize = 10.sp,
+                                color = TextSecondaryDark
+                            )
+                        }
+
+                        if (!isAccessibilityActive) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Button(
+                                    onClick = { openAppInfo(context) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ShieldAmber),
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text("App Info", fontSize = 10.sp, color = ShieldNavyDark, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = { openAccessibility(context) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ShieldTeal),
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Enable", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Step 2: VPN Filter
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ShieldNavyDark)
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isVpnRunning) "✅ 2. Network SafeSearch Blocker" else "⚠️ 2. Network SafeSearch Blocker",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isVpnRunning) ShieldGreen else TextPrimaryDark
+                            )
+                            Text(
+                                text = if (isVpnRunning) "Active • Sinkholing adult DNS" else "Required • 1 tap to start VPN",
+                                fontSize = 10.sp,
+                                color = TextSecondaryDark
+                            )
+                        }
+
+                        if (!isVpnRunning) {
+                            Button(
+                                onClick = onToggleVpn,
+                                colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("Start", fontSize = 10.sp, color = ShieldGreen, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // New Update Prompt Card
         if (updateStatus is UpdateStatus.UpdateAvailable) {
             val release = (updateStatus as UpdateStatus.UpdateAvailable).release
@@ -639,3 +803,23 @@ data class ActivityFeedItem(
     val badgeColor: Color,
     val timestamp: Long
 )
+
+private fun openAppInfo(context: Context) {
+    try {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (_: Exception) {}
+}
+
+private fun openAccessibility(context: Context) {
+    try {
+        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (_: Exception) {}
+}
+

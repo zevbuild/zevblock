@@ -137,6 +137,9 @@ fun ShieldGuardApp(
     var cooldownRemainingMs by remember { mutableLongStateOf(tamperLockManager.getRemainingCooldownMs()) }
     var isCooldownActive by remember { mutableStateOf(tamperLockManager.isCooldownActive()) }
 
+    var isBypassActive by remember { mutableStateOf(tamperLockManager.isBypassActive()) }
+    var bypassRemainingMs by remember { mutableLongStateOf(tamperLockManager.getRemainingBypassMs()) }
+
     val isVpnRunning by DnsBlockerVpnService.isRunning.collectAsState()
     val isAccessibilityActive by ShieldAccessibilityService.isServiceActive.collectAsState()
     val recentDnsLogs by DnsBlockerVpnService.recentLogs.collectAsState()
@@ -177,10 +180,21 @@ fun ShieldGuardApp(
         }
     }
 
+    // Bypass clock loop
+    LaunchedEffect(isBypassActive) {
+        while (isBypassActive) {
+            bypassRemainingMs = tamperLockManager.getRemainingBypassMs()
+            isBypassActive = tamperLockManager.isBypassActive()
+            delay(1000L)
+        }
+    }
+
     fun refreshAll() {
         status = deviceAdminManager.getStatus()
         cooldownRemainingMs = tamperLockManager.getRemainingCooldownMs()
         isCooldownActive = tamperLockManager.isCooldownActive()
+        isBypassActive = tamperLockManager.isBypassActive()
+        bypassRemainingMs = tamperLockManager.getRemainingBypassMs()
         ruleCount = DnsBlockerVpnService.blocklistMatcher.getRuleCount()
     }
 
@@ -307,6 +321,8 @@ fun ShieldGuardApp(
                     isAccessibilityActive = isAccessibilityActive,
                     hasPartnerConfigured = tamperLockManager.getPartnerSecret() != null,
                     isCooldownActive = isCooldownActive,
+                    isBypassActive = isBypassActive,
+                    bypassRemainingMs = bypassRemainingMs,
                     ruleCount = ruleCount,
                     dnsLogs = recentDnsLogs,
                     accessibilityLogs = recentAccessibilityLogs,
@@ -321,7 +337,12 @@ fun ShieldGuardApp(
                         Toast.makeText(context, if (ok) "Lockdown Released" else "Not permitted", Toast.LENGTH_SHORT).show()
                         refreshAll()
                     },
-                    onNavigateToSetup = { selectedTab = 1 }
+                    onNavigateToSetup = { selectedTab = 1 },
+                    onCancelBypass = {
+                        tamperLockManager.cancelTemporaryBypass()
+                        isBypassActive = false
+                        bypassRemainingMs = 0L
+                    }
                 )
 
                 1 -> OnboardingScreen(
@@ -336,6 +357,8 @@ fun ShieldGuardApp(
                     tamperLockManager = tamperLockManager,
                     isCooldownActive = isCooldownActive,
                     cooldownRemainingMs = cooldownRemainingMs,
+                    isBypassActive = isBypassActive,
+                    bypassRemainingMs = bypassRemainingMs,
                     onStartCooldown = { ms ->
                         tamperLockManager.startCooldown(ms)
                         isCooldownActive = true
@@ -345,6 +368,15 @@ fun ShieldGuardApp(
                         tamperLockManager.cancelCooldown()
                         isCooldownActive = false
                         cooldownRemainingMs = 0L
+                    },
+                    onStartBypass = { ms ->
+                        isBypassActive = true
+                        bypassRemainingMs = ms
+                    },
+                    onCancelBypass = {
+                        tamperLockManager.cancelTemporaryBypass()
+                        isBypassActive = false
+                        bypassRemainingMs = 0L
                     }
                 )
 
