@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.ui.screens
+package com.zevbuild.zevblock.ui.screens
 
 import android.content.Context
 import android.content.Intent
@@ -177,14 +177,14 @@ fun DashboardScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = ShieldAmber, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("TEMPORARY BYPASS ACTIVE", fontWeight = FontWeight.Bold, color = ShieldAmber, fontSize = 13.sp)
+                            Text("CUSTOM RULES BYPASS ACTIVE", fontWeight = FontWeight.Bold, color = ShieldAmber, fontSize = 13.sp)
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         val sec = bypassRemainingMs / 1000
                         val min = sec / 60
                         val s = sec % 60
                         Text(
-                            text = "Restrictions suspended • %02d:%02d left".format(min, s),
+                            text = "Custom rules unlocked • Adult Shield strictly ACTIVE • %02d:%02d left".format(min, s),
                             color = TextPrimaryDark,
                             fontSize = 12.sp
                         )

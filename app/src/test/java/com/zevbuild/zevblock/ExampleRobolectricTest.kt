@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock
+package com.zevbuild.zevblock
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -429,5 +429,39 @@ class ExampleRobolectricTest {
         assertFalse(com.zevbuild.zevblock.core.updater.AppUpdateManager.isValidDownloadUrl("https://malicious-site.com/fake-update.apk"))
         assertFalse(com.zevbuild.zevblock.core.updater.AppUpdateManager.isValidDownloadUrl("javascript:alert(1)"))
         assertFalse(com.zevbuild.zevblock.core.updater.AppUpdateManager.isValidDownloadUrl(""))
+    }
+
+    @Test
+    fun `test zero bypass guarantee during partner temporary bypass`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val lockManager = TamperLockManager(context)
+        val matcher = DomainBlocklistMatcher()
+        val detector = com.zevbuild.zevblock.core.accessibility.NsfwContentDetector()
+
+        // Configure custom keyword
+        detector.setCustomKeywords(listOf("customdistraction"))
+
+        // Activate temporary partner bypass
+        lockManager.startTemporaryBypass(15 * 60 * 1000L)
+        assertTrue(lockManager.isBypassActive())
+
+        // 1. DNS: Hardcoded adult domains MUST remain flagged and blocked
+        assertTrue(matcher.isHardcodedAdultDomain("pornhub.com"))
+        assertTrue(matcher.isHardcodedAdultDomain("xvideos.com"))
+        assertFalse(matcher.isHardcodedAdultDomain("wikipedia.org"))
+
+        // 2. Screen/URL: Built-in explicit terms MUST NOT be exempted during bypass
+        val adultResult = detector.analyze("https://www.google.com/search?q=free+xxx+video")
+        assertTrue(adultResult.isNsfw)
+        assertTrue("Adult content category must not be custom", adultResult.category != "Custom Blocked Keyword")
+
+        // 3. Custom rules ARE exempted during bypass
+        val customResult = detector.analyze("https://example.com/customdistraction")
+        assertTrue(customResult.isNsfw)
+        assertEquals("Custom Blocked Keyword", customResult.category)
+
+        // Clean up
+        lockManager.cancelTemporaryBypass()
+        assertFalse(lockManager.isBypassActive())
     }
 }

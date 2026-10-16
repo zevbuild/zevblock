@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.vpn
+package com.zevbuild.zevblock.vpn
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -131,37 +131,40 @@ open class DnsBlockerVpnService : VpnService() {
 
                 val isBypassActive = TamperLockManager.isBypassActive(this@DnsBlockerVpnService)
 
-                // 3. Step A: SafeSearch VIP Check (Skipped during active temporary bypass)
-                if (!isBypassActive) {
-                    val safeSearchResponse = safeSearchManager.rewriteDns(dnsQuery)
-                    if (safeSearchResponse != null) {
-                        val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(ipPacket, safeSearchResponse)
-                        synchronized(fos) {
-                            fos.write(outPacket)
-                        }
-                        val safeCount = _safeSearchQueries.incrementAndGet()
-                        safeSearchQueriesCount.value = safeCount
-                        logDnsEvent(domain, "SafeSearch VIP", isBlocked = false, isSafeSearch = true, reason = "Forced Strict VIP")
-                        statsManager?.recordDnsQuery(isBlocked = false, isSafeSearch = true)
-                        continue
+                // 3. Step A: SafeSearch VIP Check (Strictly enforced at all times to prevent adult search results)
+                val safeSearchResponse = safeSearchManager.rewriteDns(dnsQuery)
+                if (safeSearchResponse != null) {
+                    val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(ipPacket, safeSearchResponse)
+                    synchronized(fos) {
+                        fos.write(outPacket)
                     }
+                    val safeCount = _safeSearchQueries.incrementAndGet()
+                    safeSearchQueriesCount.value = safeCount
+                    logDnsEvent(domain, "SafeSearch VIP", isBlocked = false, isSafeSearch = true, reason = "Forced Strict VIP")
+                    statsManager?.recordDnsQuery(isBlocked = false, isSafeSearch = true)
+                    continue
                 }
 
-                // 4. Step B: Domain Blocklist Check (Skipped during active temporary bypass)
-                if (!isBypassActive) {
-                    val blockResult = blocklistMatcher.isBlocked(domain)
-                    if (blockResult.isBlocked) {
-                        val sinkholeResponse = DnsPacketBuilder.buildSinkholeResponse(dnsQuery, blockedIp = "0.0.0.0", isNxDomain = false)
-                        val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(ipPacket, sinkholeResponse)
-                        synchronized(fos) {
-                            fos.write(outPacket)
-                        }
-                        val blockedCount = _blockedQueries.incrementAndGet()
-                        blockedQueriesCount.value = blockedCount
-                        logDnsEvent(domain, "Blocked", isBlocked = true, isSafeSearch = false, reason = blockResult.reason)
-                        statsManager?.recordDnsQuery(isBlocked = true, isSafeSearch = false)
-                        continue
+                // 4. Step B: Domain Blocklist Check
+                // Zero-Bypass Guarantee: Built-in adult domains are IMMUTABLE and ALWAYS sinkholed, even during temporary bypass!
+                val blockResult = blocklistMatcher.isBlocked(domain)
+                val shouldBlock = if (isBypassActive) {
+                    blocklistMatcher.isHardcodedAdultDomain(domain)
+                } else {
+                    blockResult.isBlocked
+                }
+
+                if (shouldBlock) {
+                    val sinkholeResponse = DnsPacketBuilder.buildSinkholeResponse(dnsQuery, blockedIp = "0.0.0.0", isNxDomain = false)
+                    val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(ipPacket, sinkholeResponse)
+                    synchronized(fos) {
+                        fos.write(outPacket)
                     }
+                    val blockedCount = _blockedQueries.incrementAndGet()
+                    blockedQueriesCount.value = blockedCount
+                    logDnsEvent(domain, "Blocked", isBlocked = true, isSafeSearch = false, reason = blockResult.reason)
+                    statsManager?.recordDnsQuery(isBlocked = true, isSafeSearch = false)
+                    continue
                 }
 
                 // 5. Step C: Forward clean query to Upstream Adult-Filtering DNS Resolver asynchronously

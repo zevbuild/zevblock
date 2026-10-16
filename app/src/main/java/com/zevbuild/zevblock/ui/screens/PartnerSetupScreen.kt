@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.ui.screens
+package com.zevbuild.zevblock.ui.screens
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -458,7 +458,7 @@ fun PartnerSetupScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Temporarily suspend all keyword, adult domain, and incognito restrictions with your partner's 6-digit TOTP approval. Protections automatically re-engage when time expires.",
+                    text = "Temporarily suspend your custom-added keyword and domain rules with your partner's 6-digit TOTP approval. Zero-Bypass Guarantee: Adult pornography, explicit searches, and incognito blocking remain strictly active at all times.",
                     fontSize = 12.sp,
                     color = TextSecondaryDark,
                     lineHeight = 17.sp

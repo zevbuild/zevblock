@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.accessibility
+package com.zevbuild.zevblock.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.app.NotificationChannel
@@ -54,10 +54,11 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         val packageName = event.packageName?.toString() ?: return
 
-        // Respect active partner temporary bypass session
-        if (TamperLockManager.isBypassActive(this)) {
-            return
-        }
+        // Zero-Bypass Guarantee:
+        // Even when a partner temporary bypass session is active, adult content, explicit searches,
+        // incognito browsing, and settings tampering are NEVER bypassed!
+        // Only user-defined custom keywords are temporarily relaxed during bypass.
+        val isBypassActive = TamperLockManager.isBypassActive(this)
 
         // Sync custom keywords from customRuleManager
         customRuleManager?.let {
@@ -71,7 +72,7 @@ class ShieldAccessibilityService : AccessibilityService() {
             // 1. BROWSER INSPECTION: Incognito & NSFW URL Extraction
             // =================================================================
             if (browserUrlExtractor.isSupportedBrowser(packageName)) {
-                // A. Check for Incognito / Private Window
+                // A. Check for Incognito / Private Window (IMMUTABLE - never bypassed)
                 if (isIncognitoBlockEnabled && browserUrlExtractor.isIncognitoOrPrivateWindow(packageName, rootNode)) {
                     Log.w(TAG, "Incognito mode detected in $packageName! Executing back action.")
                     performGlobalAction(GLOBAL_ACTION_BACK)
@@ -93,7 +94,12 @@ class ShieldAccessibilityService : AccessibilityService() {
                 val extractedUrl = browserUrlExtractor.extractUrl(rootNode)
                 if (!extractedUrl.isNullOrBlank() && isNsfwFilterEnabled) {
                     val nsfwResult = nsfwContentDetector.analyze(extractedUrl)
-                    if (nsfwResult.isNsfw) {
+                    val shouldBlockNsfw = if (isBypassActive) {
+                        nsfwResult.isNsfw && nsfwResult.category != "Custom Blocked Keyword"
+                    } else {
+                        nsfwResult.isNsfw
+                    }
+                    if (shouldBlockNsfw) {
                         Log.w(TAG, "NSFW content detected: '${nsfwResult.matchedTerm}' (${nsfwResult.category}) in URL: $extractedUrl")
                         performGlobalAction(GLOBAL_ACTION_BACK)
                         val nsfwCount = _nsfwBlocks.incrementAndGet()
@@ -137,6 +143,8 @@ class ShieldAccessibilityService : AccessibilityService() {
 
             // =================================================================
             // 3. SYSTEM-WIDE ADULT CONTENT INSPECTION across any app
+            // Zero-Bypass Guarantee: Built-in explicit content is ALWAYS blocked/warned,
+            // even during partner temporary bypass sessions.
             // =================================================================
             if (isNsfwFilterEnabled && !isExemptPackage(packageName)) {
                 // Check if this is a messaging / chat app (WhatsApp, Telegram, Signal, etc.)
@@ -144,7 +152,11 @@ class ShieldAccessibilityService : AccessibilityService() {
                 // WITHOUT kicking the user out of the app.
                 if (isMessagingApp(packageName)) {
                     val windowNsfw = inspectWindowForNsfw(rootNode, depth = 0)
-                    if (windowNsfw != null) {
+                    val shouldWarn = if (windowNsfw != null) {
+                        if (isBypassActive) windowNsfw.category != "Custom Blocked Keyword" else true
+                    } else false
+
+                    if (shouldWarn && windowNsfw != null) {
                         Log.w(TAG, "Vulgar keyword in messaging app $packageName: '${windowNsfw.matchedTerm}' (warning alert only)")
                         showChatWarning(windowNsfw.matchedTerm ?: "explicit keyword", packageName)
                         val chatCount = _chatWarnings.incrementAndGet()
@@ -161,7 +173,12 @@ class ShieldAccessibilityService : AccessibilityService() {
                     val extractedUrl = browserUrlExtractor.extractUrl(rootNode)
                     if (!extractedUrl.isNullOrBlank()) {
                         val nsfwResult = nsfwContentDetector.analyze(extractedUrl)
-                        if (nsfwResult.isNsfw) {
+                        val shouldBlockNsfw = if (isBypassActive) {
+                            nsfwResult.isNsfw && nsfwResult.category != "Custom Blocked Keyword"
+                        } else {
+                            nsfwResult.isNsfw
+                        }
+                        if (shouldBlockNsfw) {
                             Log.w(TAG, "NSFW URL in unlisted browser/app $packageName: '${nsfwResult.matchedTerm}'")
                             performGlobalAction(GLOBAL_ACTION_BACK)
                             val nsfwCount = _nsfwBlocks.incrementAndGet()
@@ -180,7 +197,10 @@ class ShieldAccessibilityService : AccessibilityService() {
                     } else {
                         // Inspect on-screen window text for explicit adult titles or search results
                         val windowNsfw = inspectWindowForNsfw(rootNode, depth = 0)
-                        if (windowNsfw != null) {
+                        val shouldBlockWindow = if (windowNsfw != null) {
+                            if (isBypassActive) windowNsfw.category != "Custom Blocked Keyword" else true
+                        } else false
+                        if (shouldBlockWindow && windowNsfw != null) {
                             Log.w(TAG, "On-screen adult content detected in $packageName: '${windowNsfw.matchedTerm}'")
                             performGlobalAction(GLOBAL_ACTION_BACK)
                             val nsfwCount = _nsfwBlocks.incrementAndGet()

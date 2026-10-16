@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.ui.screens
+package com.zevbuild.zevblock.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -111,17 +111,27 @@ fun WelcomePurposeDialog(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Core Purpose Message (Concise, punchy & effective)
-                Text(
-                    text = "ZevBlock is designed for one clear purpose: to keep you completely safe from pornography and adult content.",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = ShieldTeal,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
-                )
+                // Core Purpose Message (Short, punchy & highly effective)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(ShieldTeal.copy(alpha = 0.12f))
+                        .border(1.dp, ShieldTeal.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "This app is designed to keep you safe from pornography and adult content.",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ShieldTeal,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 20.sp
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(18.dp))
 
