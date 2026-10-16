@@ -21,14 +21,36 @@ class BrowserUrlExtractor {
 
         val SUPPORTED_BROWSERS = setOf(
             PKG_CHROME,
+            "com.chrome.beta",
+            "com.chrome.dev",
+            "com.chrome.canary",
+            "org.chromium.chrome",
             PKG_FIREFOX,
             PKG_FIREFOX_FENIX,
             PKG_FIREFOX_FOCUS,
+            "org.mozilla.firefox_beta",
             PKG_BRAVE,
             PKG_EDGE,
             PKG_SAMSUNG_BROWSER,
+            "com.sec.android.app.sbrowser.beta",
             PKG_OPERA,
-            PKG_DUCKDUCKGO
+            "com.opera.mini.native",
+            "com.opera.touch",
+            "com.opera.gx",
+            PKG_DUCKDUCKGO,
+            "com.kiwibrowser.browser",
+            "mark.via.gp",
+            "com.vivaldi.browser",
+            "com.aloha.browser",
+            "alohamobile.browser.lite",
+            "com.cloudmosa.puffinFree",
+            "org.torproject.torbrowser",
+            "com.ucmobile.intl",
+            "com.UCMobile",
+            "com.mi.globalbrowser",
+            "com.transsion.phoenix",
+            "acr.browser.barebones",
+            "com.pure.mini.browser"
         )
 
         // Known Address Bar View IDs
@@ -42,7 +64,12 @@ class BrowserUrlExtractor {
             "org.mozilla.fenix:id/toolbar_url",
             "org.mozilla.fenix:id/mozac_browser_toolbar_url_view",
             "com.sec.android.app.sbrowser:id/location_bar_edit_text",
-            "com.opera.browser:id/url_field"
+            "com.opera.browser:id/url_field",
+            "com.kiwibrowser.browser:id/url_bar",
+            "mark.via.gp:id/search_bar",
+            "mark.via.gp:id/at",
+            "com.vivaldi.browser:id/url_bar",
+            "com.aloha.browser:id/url_bar"
         )
     }
 

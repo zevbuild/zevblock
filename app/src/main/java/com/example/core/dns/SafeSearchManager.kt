@@ -28,6 +28,15 @@ class SafeSearchManager {
         // DuckDuckGo SafeSearch VIP
         const val DUCKDUCKGO_SAFE_CNAME = "safe.duckduckgo.com"
         const val DUCKDUCKGO_SAFE_IPV4 = "52.142.124.215"
+
+        // Yahoo SafeSearch VIP
+        const val YAHOO_SAFE_CNAME = "safe.search.yahoo.com"
+
+        // Brave SafeSearch
+        const val BRAVE_SAFE_CNAME = "safe.brave.com"
+
+        // Qwant SafeSearch
+        const val QWANT_SAFE_CNAME = "safe.qwant.com"
     }
 
     var isEnabled: Boolean = true
@@ -85,6 +94,34 @@ class SafeSearchManager {
             }
         }
 
+        // 5. Yahoo SafeSearch
+        if (isYahooSearchDomain(domain)) {
+            Log.i(TAG, "SafeSearch Intercept: $domain -> Yahoo SafeSearch ($YAHOO_SAFE_CNAME)")
+            return when (qType) {
+                DnsRecordType.CNAME -> DnsPacketBuilder.buildCnameResponse(query, YAHOO_SAFE_CNAME)
+                DnsRecordType.A -> DnsPacketBuilder.buildCnameResponse(query, YAHOO_SAFE_CNAME)
+                else -> null
+            }
+        }
+
+        // 6. Brave SafeSearch
+        if (domain == "search.brave.com") {
+            Log.i(TAG, "SafeSearch Intercept: $domain -> Brave Safe ($BRAVE_SAFE_CNAME)")
+            return when (qType) {
+                DnsRecordType.CNAME, DnsRecordType.A -> DnsPacketBuilder.buildCnameResponse(query, BRAVE_SAFE_CNAME)
+                else -> null
+            }
+        }
+
+        // 7. Qwant SafeSearch
+        if (domain == "qwant.com" || domain == "www.qwant.com") {
+            Log.i(TAG, "SafeSearch Intercept: $domain -> Qwant Safe ($QWANT_SAFE_CNAME)")
+            return when (qType) {
+                DnsRecordType.CNAME, DnsRecordType.A -> DnsPacketBuilder.buildCnameResponse(query, QWANT_SAFE_CNAME)
+                else -> null
+            }
+        }
+
         return null
     }
 
@@ -116,5 +153,11 @@ class SafeSearchManager {
         return domain == "bing.com" ||
                 domain == "www.bing.com" ||
                 domain == "cn.bing.com"
+    }
+
+    fun isYahooSearchDomain(domain: String): Boolean {
+        return domain == "search.yahoo.com" ||
+                domain == "search.yahoo.co.jp" ||
+                domain == "us.search.yahoo.com"
     }
 }

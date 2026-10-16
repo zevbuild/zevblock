@@ -517,6 +517,6 @@ private fun formatMs(ms: Long): String {
 
 private fun copyToClipboard(context: Context, text: String, msg: String) {
     val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cb.setPrimaryClip(ClipData.newPlainText("ShieldGuard", text))
+    cb.setPrimaryClip(ClipData.newPlainText("ZevBlock", text))
     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 }

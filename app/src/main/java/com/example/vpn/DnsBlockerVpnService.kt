@@ -68,7 +68,7 @@ open class DnsBlockerVpnService : VpnService() {
 
         try {
             val builder = Builder()
-                .setSession("ShieldGuard DNS Sinkhole")
+                .setSession("ZevBlock DNS Sinkhole")
                 .setMtu(1500)
                 .setBlocking(true)
                 // Virtual DNS sinkhole endpoint
@@ -96,7 +96,7 @@ open class DnsBlockerVpnService : VpnService() {
                 runPacketLoop(vpnInterface!!)
             }
 
-            Log.i(TAG, "ShieldGuard DNS Sinkhole successfully established.")
+            Log.i(TAG, "ZevBlock DNS Sinkhole successfully established.")
         } catch (e: Exception) {
             Log.e(TAG, "Fatal error establishing VPN", e)
             stopVpn()
@@ -125,14 +125,18 @@ open class DnsBlockerVpnService : VpnService() {
                 val dnsQuery = DnsPacketParser.parseDnsQuery(ipPacket.payload) ?: continue
                 val domain = dnsQuery.question.name
 
-                _totalQueries.incrementAndGet()
+                val total = _totalQueries.incrementAndGet()
+                totalQueriesCount.value = total
 
                 // 3. Step A: SafeSearch VIP Check
                 val safeSearchResponse = safeSearchManager.rewriteDns(dnsQuery)
                 if (safeSearchResponse != null) {
                     val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(ipPacket, safeSearchResponse)
-                    fos.write(outPacket)
-                    _safeSearchQueries.incrementAndGet()
+                    synchronized(fos) {
+                        fos.write(outPacket)
+                    }
+                    val safeCount = _safeSearchQueries.incrementAndGet()
+                    safeSearchQueriesCount.value = safeCount
                     logDnsEvent(domain, "SafeSearch VIP", isBlocked = false, isSafeSearch = true, reason = "Forced Strict VIP")
                     continue
                 }
@@ -142,15 +146,20 @@ open class DnsBlockerVpnService : VpnService() {
                 if (blockResult.isBlocked) {
                     val sinkholeResponse = DnsPacketBuilder.buildSinkholeResponse(dnsQuery, blockedIp = "0.0.0.0", isNxDomain = false)
                     val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(ipPacket, sinkholeResponse)
-                    fos.write(outPacket)
-                    _blockedQueries.incrementAndGet()
+                    synchronized(fos) {
+                        fos.write(outPacket)
+                    }
+                    val blockedCount = _blockedQueries.incrementAndGet()
+                    blockedQueriesCount.value = blockedCount
                     logDnsEvent(domain, "Blocked", isBlocked = true, isSafeSearch = false, reason = blockResult.reason)
                     continue
                 }
 
-                // 5. Step C: Forward clean query to Upstream DNS Resolver
-                forwardUpstreamDns(ipPacket, dnsQuery.rawQueryBytes, fos)
-                logDnsEvent(domain, "Allowed", isBlocked = false, isSafeSearch = false, reason = "Upstream Resolved")
+                // 5. Step C: Forward clean query to Upstream Adult-Filtering DNS Resolver asynchronously
+                scope.launch(Dispatchers.IO) {
+                    forwardUpstreamDns(ipPacket, dnsQuery.rawQueryBytes, fos)
+                }
+                logDnsEvent(domain, "Allowed", isBlocked = false, isSafeSearch = false, reason = "Upstream Resolved (Adult-Filtered)")
 
             } catch (e: Exception) {
                 if (scope.isActive) {
@@ -161,7 +170,7 @@ open class DnsBlockerVpnService : VpnService() {
     }
 
     /**
-     * Forwards a clean DNS query to upstream DNS resolver (1.1.1.1 / 9.9.9.9)
+     * Forwards a query to upstream Adult-Filtering DNS resolvers (Cloudflare 1.1.1.3 / CleanBrowsing 185.228.168.10)
      * using a protected UDP socket that bypasses the local VPN TUN interface.
      */
     private fun forwardUpstreamDns(incomingIpPacket: IpUdpPacket, rawDnsQuery: ByteArray, fos: FileOutputStream) {
@@ -169,22 +178,43 @@ open class DnsBlockerVpnService : VpnService() {
         try {
             socket = DatagramSocket()
             protect(socket) // Critical: socket bypasses VPN interface!
-            socket.soTimeout = 2000 // 2 seconds timeout
+            socket.soTimeout = 2500 // 2.5 seconds timeout
 
-            val upstreamIp = InetAddress.getByName(UPSTREAM_DNS_PRIMARY)
-            val sendPacket = DatagramPacket(rawDnsQuery, rawDnsQuery.size, upstreamIp, 53)
-            socket.send(sendPacket)
+            val upstreamIps = listOf(
+                UPSTREAM_DNS_PRIMARY,
+                UPSTREAM_DNS_SECONDARY,
+                UPSTREAM_DNS_CLEANBROWSING
+            )
 
-            val recvBuffer = ByteArray(4096)
-            val recvPacket = DatagramPacket(recvBuffer, recvBuffer.size)
-            socket.receive(recvPacket)
+            var dnsAnswerPayload: ByteArray? = null
 
-            val dnsAnswerPayload = ByteArray(recvPacket.length)
-            System.arraycopy(recvBuffer, 0, dnsAnswerPayload, 0, recvPacket.length)
+            for (serverIp in upstreamIps) {
+                try {
+                    val upstreamAddr = InetAddress.getByName(serverIp)
+                    val sendPacket = DatagramPacket(rawDnsQuery, rawDnsQuery.size, upstreamAddr, 53)
+                    socket.send(sendPacket)
 
-            // Wrap response back into IP/UDP packet and deliver to TUN
-            val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(incomingIpPacket, dnsAnswerPayload)
-            fos.write(outPacket)
+                    val recvBuffer = ByteArray(4096)
+                    val recvPacket = DatagramPacket(recvBuffer, recvBuffer.size)
+                    socket.receive(recvPacket)
+
+                    val payload = ByteArray(recvPacket.length)
+                    System.arraycopy(recvBuffer, 0, payload, 0, recvPacket.length)
+                    dnsAnswerPayload = payload
+                    break // Succeeded
+                } catch (e: Exception) {
+                    // Try next resolver
+                    continue
+                }
+            }
+
+            if (dnsAnswerPayload != null) {
+                // Wrap response back into IP/UDP packet and deliver to TUN
+                val outPacket = DnsPacketBuilder.wrapDnsResponseInUdpIp(incomingIpPacket, dnsAnswerPayload)
+                synchronized(fos) {
+                    fos.write(outPacket)
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Upstream DNS resolution error: ${e.message}")
         } finally {
@@ -246,7 +276,7 @@ open class DnsBlockerVpnService : VpnService() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ShieldGuard OS")
+            .setContentTitle("ZevBlock")
             .setContentText(statusText)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pendingIntent)
@@ -264,7 +294,7 @@ open class DnsBlockerVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "ShieldGuard VPN Service",
+                "ZevBlock VPN Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Shows active DNS sinkhole status and protection counters"
@@ -283,8 +313,11 @@ open class DnsBlockerVpnService : VpnService() {
         private const val NOTIFICATION_ID = 2001
         private const val MAX_RECENT_LOGS = 50
 
-        const val UPSTREAM_DNS_PRIMARY = "1.1.1.1" // Cloudflare Primary
-        const val UPSTREAM_DNS_SECONDARY = "9.9.9.9" // Quad9 Primary
+        // Upstream Adult-Filtering Resolvers (Cloudflare Family 1.1.1.3 & CleanBrowsing Adult Filter)
+        const val UPSTREAM_DNS_PRIMARY = "1.1.1.3" // Cloudflare Family (Malware + Adult Content Block)
+        const val UPSTREAM_DNS_SECONDARY = "1.0.0.3" // Cloudflare Family Secondary
+        const val UPSTREAM_DNS_CLEANBROWSING = "185.228.168.10" // CleanBrowsing Adult Filter
+        const val UPSTREAM_DNS_ADGUARD_FAMILY = "94.140.14.15" // AdGuard Family Protection
 
         // Global Shared State for UI binding
         private val _isRunning = MutableStateFlow(false)

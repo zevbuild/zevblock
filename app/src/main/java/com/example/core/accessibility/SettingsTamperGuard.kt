@@ -95,7 +95,10 @@ class SettingsTamperGuard {
     private fun isAccessibilitySettingsPage(rootNode: AccessibilityNodeInfo): Boolean {
         val hasServiceMention = nodeContainsText(
             rootNode,
-            listOf("shieldguard anti-tamper", "shieldguard anti-tamper service")
+            listOf(
+                "zevblock anti-tamper", "zevblock anti-tamper service", "zevblock",
+                "shieldguard anti-tamper", "shieldguard anti-tamper service"
+            )
         )
         if (!hasServiceMention) return false
 
@@ -105,7 +108,10 @@ class SettingsTamperGuard {
     private fun isDeviceAdminPage(rootNode: AccessibilityNodeInfo): Boolean {
         val hasAdminMention = nodeContainsText(
             rootNode,
-            listOf("shieldguard os device protection", "device admin apps", "device administrators")
+            listOf(
+                "zevblock device protection", "zevblock",
+                "shieldguard os device protection", "device admin apps", "device administrators"
+            )
         )
         if (!hasAdminMention) return false
 
@@ -113,7 +119,10 @@ class SettingsTamperGuard {
     }
 
     private fun isVpnSettingsPage(rootNode: AccessibilityNodeInfo): Boolean {
-        val hasVpnMention = nodeContainsText(rootNode, listOf("vpn", "shieldguard dns sinkhole"))
+        val hasVpnMention = nodeContainsText(
+            rootNode,
+            listOf("vpn", "zevblock dns sinkhole", "shieldguard dns sinkhole")
+        )
         if (!hasVpnMention) return false
 
         return nodeContainsText(rootNode, listOf("always-on vpn", "forget vpn", "disconnect", "block connections without vpn"))

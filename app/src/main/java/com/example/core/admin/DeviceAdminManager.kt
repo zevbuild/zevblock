@@ -241,6 +241,7 @@ class DeviceAdminManager(private val context: Context) {
             dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_CONFIG_VPN)
             dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER)
             dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_FACTORY_RESET)
+            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES)
 
             Log.i(TAG, "Full anti-bypass lockdown successfully applied!")
             true
@@ -263,6 +264,7 @@ class DeviceAdminManager(private val context: Context) {
             dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_CONFIG_VPN)
             dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER)
             dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_FACTORY_RESET)
+            dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES)
             Log.i(TAG, "Anti-bypass lockdown released")
             true
         } catch (e: Exception) {

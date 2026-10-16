@@ -619,7 +619,7 @@ private fun openAccessibilitySettings(context: Context) {
 
 private fun copyToClipboard(context: Context, text: String, message: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    val clip = ClipData.newPlainText("ShieldGuard", text)
+    val clip = ClipData.newPlainText("ZevBlock", text)
     clipboard.setPrimaryClip(clip)
     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 }

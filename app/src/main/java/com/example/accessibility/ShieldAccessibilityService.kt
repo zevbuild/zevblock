@@ -52,12 +52,13 @@ class ShieldAccessibilityService : AccessibilityService() {
                 if (isIncognitoBlockEnabled && browserUrlExtractor.isIncognitoOrPrivateWindow(packageName, rootNode)) {
                     Log.w(TAG, "Incognito mode detected in $packageName! Executing back action.")
                     performGlobalAction(GLOBAL_ACTION_BACK)
-                    _incognitoBlocks.incrementAndGet()
+                    val incognitoCount = _incognitoBlocks.incrementAndGet()
+                    incognitoBlocksCount.value = incognitoCount
                     logEvent(packageName, "Incognito Window Blocked", "Private browsing is disabled")
                     OverlayManager.triggerWarning(
                         this,
                         alertType = "Incognito Mode Blocked",
-                        message = "Private and Incognito browsing is strictly prohibited under ShieldGuard OS anti-bypass policies.",
+                        message = "Private and Incognito browsing is strictly prohibited under ZevBlock system safeguards.",
                         detail = "Package: $packageName"
                     )
                     rootNode?.recycle()
@@ -71,7 +72,8 @@ class ShieldAccessibilityService : AccessibilityService() {
                     if (nsfwResult.isNsfw) {
                         Log.w(TAG, "NSFW content detected: '${nsfwResult.matchedTerm}' (${nsfwResult.category}) in URL: $extractedUrl")
                         performGlobalAction(GLOBAL_ACTION_BACK)
-                        _nsfwBlocks.incrementAndGet()
+                        val nsfwCount = _nsfwBlocks.incrementAndGet()
+                        nsfwBlocksCount.value = nsfwCount
                         logEvent(packageName, "NSFW Content Blocked", "Matched: ${nsfwResult.matchedTerm}")
                         OverlayManager.triggerWarning(
                             this,
@@ -93,7 +95,8 @@ class ShieldAccessibilityService : AccessibilityService() {
                 if (tamperEvent != null) {
                     Log.w(TAG, "Settings tamper detected: ${tamperEvent.target} - ${tamperEvent.reason}")
                     performGlobalAction(GLOBAL_ACTION_BACK)
-                    _settingsBlocks.incrementAndGet()
+                    val settingsCount = _settingsBlocks.incrementAndGet()
+                    settingsBlocksCount.value = settingsCount
                     logEvent(packageName, "Settings Tamper Blocked", tamperEvent.target)
                     OverlayManager.triggerWarning(
                         this,
@@ -106,10 +109,86 @@ class ShieldAccessibilityService : AccessibilityService() {
                 }
             }
 
+            // =================================================================
+            // 3. SYSTEM-WIDE ADULT CONTENT INSPECTION across any app
+            // =================================================================
+            if (isNsfwFilterEnabled && !isExemptPackage(packageName)) {
+                // Check if the window is an unlisted browser with an address bar
+                val extractedUrl = browserUrlExtractor.extractUrl(rootNode)
+                if (!extractedUrl.isNullOrBlank()) {
+                    val nsfwResult = nsfwContentDetector.analyze(extractedUrl)
+                    if (nsfwResult.isNsfw) {
+                        Log.w(TAG, "NSFW URL in unlisted browser/app $packageName: '${nsfwResult.matchedTerm}'")
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                        val nsfwCount = _nsfwBlocks.incrementAndGet()
+                        nsfwBlocksCount.value = nsfwCount
+                        logEvent(packageName, "Adult Content Blocked", "Matched: ${nsfwResult.matchedTerm}")
+                        OverlayManager.triggerWarning(
+                            this,
+                            alertType = "Explicit Content Blocked",
+                            message = "System-level adult content filter intercepted explicit URL: '${nsfwResult.matchedTerm}'.",
+                            detail = extractedUrl
+                        )
+                        rootNode?.recycle()
+                        return
+                    }
+                } else {
+                    // Inspect on-screen window text for explicit adult titles or search results
+                    val windowNsfw = inspectWindowForNsfw(rootNode, depth = 0)
+                    if (windowNsfw != null) {
+                        Log.w(TAG, "On-screen adult content detected in $packageName: '${windowNsfw.matchedTerm}'")
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                        val nsfwCount = _nsfwBlocks.incrementAndGet()
+                        nsfwBlocksCount.value = nsfwCount
+                        logEvent(packageName, "On-Screen Adult Content Blocked", "Matched: ${windowNsfw.matchedTerm}")
+                        OverlayManager.triggerWarning(
+                            this,
+                            alertType = "Explicit Content Blocked",
+                            message = "System safeguard intercepted explicit adult material on screen: '${windowNsfw.matchedTerm}'.",
+                            detail = "App: $packageName"
+                        )
+                        rootNode?.recycle()
+                        return
+                    }
+                }
+            }
+
             rootNode?.recycle()
         } catch (e: Exception) {
             Log.e(TAG, "Error in accessibility event processing", e)
         }
+    }
+
+    private fun isExemptPackage(packageName: String): Boolean {
+        if (packageName == this.packageName) return true
+        if (packageName == "com.android.systemui") return true
+        if (packageName.contains("launcher") || packageName.contains("inputmethod")) return true
+        return false
+    }
+
+    private fun inspectWindowForNsfw(node: AccessibilityNodeInfo?, depth: Int): com.example.core.accessibility.NsfwDetectionResult? {
+        if (node == null || depth > 5) return null
+
+        val text = node.text?.toString()
+        if (!text.isNullOrBlank()) {
+            val res = nsfwContentDetector.analyze(text)
+            if (res.isNsfw) return res
+        }
+
+        val desc = node.contentDescription?.toString()
+        if (!desc.isNullOrBlank()) {
+            val res = nsfwContentDetector.analyze(desc)
+            if (res.isNsfw) return res
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = inspectWindowForNsfw(child, depth + 1)
+            child.recycle()
+            if (found != null) return found
+        }
+
+        return null
     }
 
     override fun onInterrupt() {
