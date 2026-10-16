@@ -278,4 +278,23 @@ class ExampleRobolectricTest {
         assertTrue(extractor.isSupportedBrowser("com.microsoft.emmx"))
         assertFalse(extractor.isSupportedBrowser("com.android.calculator2"))
     }
+
+    @Test
+    fun `test messaging app detection for non-intrusive chat warnings`() {
+        // Supported messaging & chat applications
+        assertTrue(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.whatsapp"))
+        assertTrue(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.whatsapp.w4b"))
+        assertTrue(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("org.telegram.messenger"))
+        assertTrue(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("org.thoughtcrime.securesms"))
+        assertTrue(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.google.android.apps.messaging"))
+        assertTrue(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.facebook.orca"))
+        assertTrue(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.discord"))
+        assertTrue(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.snapchat.android"))
+
+        // Browsers & other apps must NOT be treated as messaging apps
+        assertFalse(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.android.chrome"))
+        assertFalse(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("org.mozilla.firefox"))
+        assertFalse(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.android.settings"))
+        assertFalse(com.example.accessibility.ShieldAccessibilityService.isMessagingApp("com.android.calculator2"))
+    }
 }

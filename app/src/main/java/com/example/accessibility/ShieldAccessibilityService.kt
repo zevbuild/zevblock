@@ -1,11 +1,20 @@
 package com.example.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import com.example.core.accessibility.BrowserUrlExtractor
 import com.example.core.accessibility.NsfwContentDetector
 import com.example.core.accessibility.SettingsTamperGuard
@@ -23,13 +32,16 @@ import java.util.concurrent.atomic.AtomicLong
  * - Detects NSFW keywords, adult URLs, and explicit search queries.
  * - Blocks Incognito / Private browsing windows.
  * - Intercepts unauthorized access to com.android.settings (App Info, Accessibility, VPN, Device Admin).
- * - Triggers GLOBAL_ACTION_BACK with a Jetpack Compose security warning overlay.
+ * - Displays non-intrusive heads-up warning alerts for vulgar keywords in chat apps without interrupting conversation.
+ * - Triggers GLOBAL_ACTION_BACK with a Jetpack Compose security warning overlay for browsers and settings.
  */
 class ShieldAccessibilityService : AccessibilityService() {
 
     private val browserUrlExtractor = BrowserUrlExtractor()
     private val nsfwContentDetector = NsfwContentDetector()
     private val settingsTamperGuard = SettingsTamperGuard()
+    private var lastChatWarningTime = 0L
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -119,42 +131,60 @@ class ShieldAccessibilityService : AccessibilityService() {
             // 3. SYSTEM-WIDE ADULT CONTENT INSPECTION across any app
             // =================================================================
             if (isNsfwFilterEnabled && !isExemptPackage(packageName)) {
-                // Check if the window is an unlisted browser with an address bar
-                val extractedUrl = browserUrlExtractor.extractUrl(rootNode)
-                if (!extractedUrl.isNullOrBlank()) {
-                    val nsfwResult = nsfwContentDetector.analyze(extractedUrl)
-                    if (nsfwResult.isNsfw) {
-                        Log.w(TAG, "NSFW URL in unlisted browser/app $packageName: '${nsfwResult.matchedTerm}'")
-                        performGlobalAction(GLOBAL_ACTION_BACK)
+                // Check if this is a messaging / chat app (WhatsApp, Telegram, Signal, etc.)
+                // In chat apps, monitor for vulgar keywords and display a warning toast/notification
+                // WITHOUT kicking the user out of the app.
+                if (isMessagingApp(packageName)) {
+                    val windowNsfw = inspectWindowForNsfw(rootNode, depth = 0)
+                    if (windowNsfw != null) {
+                        Log.w(TAG, "Vulgar keyword in messaging app $packageName: '${windowNsfw.matchedTerm}' (warning alert only)")
+                        showChatWarning(windowNsfw.matchedTerm, packageName)
+                        val chatCount = _chatWarnings.incrementAndGet()
+                        chatWarningsCount.value = chatCount
                         val nsfwCount = _nsfwBlocks.incrementAndGet()
                         nsfwBlocksCount.value = nsfwCount
-                        logEvent(packageName, "Adult Content Blocked", "Matched: ${nsfwResult.matchedTerm}")
-                        OverlayManager.triggerWarning(
-                            this,
-                            alertType = "Explicit Content Blocked",
-                            message = "System-level adult content filter intercepted explicit URL: '${nsfwResult.matchedTerm}'.",
-                            detail = extractedUrl
-                        )
+                        logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${windowNsfw.matchedTerm}")
                         rootNode?.recycle()
                         return
                     }
                 } else {
-                    // Inspect on-screen window text for explicit adult titles or search results
-                    val windowNsfw = inspectWindowForNsfw(rootNode, depth = 0)
-                    if (windowNsfw != null) {
-                        Log.w(TAG, "On-screen adult content detected in $packageName: '${windowNsfw.matchedTerm}'")
-                        performGlobalAction(GLOBAL_ACTION_BACK)
-                        val nsfwCount = _nsfwBlocks.incrementAndGet()
-                        nsfwBlocksCount.value = nsfwCount
-                        logEvent(packageName, "On-Screen Adult Content Blocked", "Matched: ${windowNsfw.matchedTerm}")
-                        OverlayManager.triggerWarning(
-                            this,
-                            alertType = "Explicit Content Blocked",
-                            message = "System safeguard intercepted explicit adult material on screen: '${windowNsfw.matchedTerm}'.",
-                            detail = "App: $packageName"
-                        )
-                        rootNode?.recycle()
-                        return
+                    // Check if the window is an unlisted browser with an address bar
+                    val extractedUrl = browserUrlExtractor.extractUrl(rootNode)
+                    if (!extractedUrl.isNullOrBlank()) {
+                        val nsfwResult = nsfwContentDetector.analyze(extractedUrl)
+                        if (nsfwResult.isNsfw) {
+                            Log.w(TAG, "NSFW URL in unlisted browser/app $packageName: '${nsfwResult.matchedTerm}'")
+                            performGlobalAction(GLOBAL_ACTION_BACK)
+                            val nsfwCount = _nsfwBlocks.incrementAndGet()
+                            nsfwBlocksCount.value = nsfwCount
+                            logEvent(packageName, "Adult Content Blocked", "Matched: ${nsfwResult.matchedTerm}")
+                            OverlayManager.triggerWarning(
+                                this,
+                                alertType = "Explicit Content Blocked",
+                                message = "System-level adult content filter intercepted explicit URL: '${nsfwResult.matchedTerm}'.",
+                                detail = extractedUrl
+                            )
+                            rootNode?.recycle()
+                            return
+                        }
+                    } else {
+                        // Inspect on-screen window text for explicit adult titles or search results
+                        val windowNsfw = inspectWindowForNsfw(rootNode, depth = 0)
+                        if (windowNsfw != null) {
+                            Log.w(TAG, "On-screen adult content detected in $packageName: '${windowNsfw.matchedTerm}'")
+                            performGlobalAction(GLOBAL_ACTION_BACK)
+                            val nsfwCount = _nsfwBlocks.incrementAndGet()
+                            nsfwBlocksCount.value = nsfwCount
+                            logEvent(packageName, "On-Screen Adult Content Blocked", "Matched: ${windowNsfw.matchedTerm}")
+                            OverlayManager.triggerWarning(
+                                this,
+                                alertType = "Explicit Content Blocked",
+                                message = "System safeguard intercepted explicit adult material on screen: '${windowNsfw.matchedTerm}'.",
+                                detail = "App: $packageName"
+                            )
+                            rootNode?.recycle()
+                            return
+                        }
                     }
                 }
             }
@@ -207,6 +237,57 @@ class ShieldAccessibilityService : AccessibilityService() {
         Log.i(TAG, "ShieldAccessibilityService destroyed")
     }
 
+    private fun showChatWarning(matchedTerm: String, packageName: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastChatWarningTime < CHAT_WARNING_THROTTLE_MS) {
+            return
+        }
+        lastChatWarningTime = now
+
+        // 1. Show immediate Toast alert on UI Thread
+        mainHandler.post {
+            try {
+                Toast.makeText(
+                    applicationContext,
+                    "⚠️ ZevBlock: Vulgar keyword '$matchedTerm' detected. Keep chats clean!",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to display chat warning toast", e)
+            }
+        }
+
+        // 2. Post heads-up warning notification
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            if (notificationManager != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val channel = NotificationChannel(
+                        CHAT_WARNING_CHANNEL_ID,
+                        "ZevBlock Chat & Messaging Safeguard",
+                        NotificationManager.IMPORTANCE_HIGH
+                    ).apply {
+                        description = "Displays non-intrusive warnings when vulgar or explicit keywords are detected in chat apps"
+                    }
+                    notificationManager.createNotificationChannel(channel)
+                }
+
+                val notification = NotificationCompat.Builder(this, CHAT_WARNING_CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.stat_notify_error)
+                    .setContentTitle("⚠️ Vulgar Word Detected")
+                    .setContentText("Keyword '$matchedTerm' detected in chat. Please avoid vulgarity.")
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setAutoCancel(true)
+                    .setTimeoutAfter(8000L)
+                    .build()
+
+                notificationManager.notify(CHAT_WARNING_NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to post chat warning notification", e)
+        }
+    }
+
     private fun logEvent(packageName: String, title: String, detail: String) {
         val entry = AccessibilityLogEntry(
             packageName = packageName,
@@ -225,6 +306,53 @@ class ShieldAccessibilityService : AccessibilityService() {
         const val TAG = "ShieldAccessibility"
         private const val MAX_RECENT_EVENTS = 40
 
+        const val CHAT_WARNING_CHANNEL_ID = "zevblock_chat_warning_channel"
+        private const val CHAT_WARNING_NOTIFICATION_ID = 3001
+        private const val CHAT_WARNING_THROTTLE_MS = 4000L
+
+        val CHAT_AND_MESSAGING_PACKAGES: Set<String> = setOf(
+            // WhatsApp
+            "com.whatsapp",
+            "com.whatsapp.w4b",
+            // Telegram
+            "org.telegram.messenger",
+            "org.telegram.messenger.web",
+            "org.telegram.plus",
+            // Signal
+            "org.thoughtcrime.securesms",
+            // SMS & RCS
+            "com.google.android.apps.messaging",
+            "com.samsung.android.messaging",
+            // Messenger & Instagram
+            "com.facebook.orca",
+            "com.facebook.mlite",
+            "com.instagram.android",
+            // Discord & Slack
+            "com.discord",
+            "com.slack",
+            // Snapchat
+            "com.snapchat.android",
+            // Viber, Line, WeChat, KakaoTalk
+            "com.viber.voip",
+            "jp.naver.line.android",
+            "com.tencent.mm",
+            "com.kakao.talk",
+            // Google Meet / Chat / Hangouts
+            "com.google.android.talk",
+            // Skype
+            "com.skype.raider"
+        )
+
+        fun isMessagingApp(packageName: String): Boolean {
+            if (CHAT_AND_MESSAGING_PACKAGES.contains(packageName)) return true
+            val lower = packageName.lowercase()
+            return lower.startsWith("com.whatsapp") ||
+                    lower.startsWith("org.telegram") ||
+                    lower.startsWith("com.discord") ||
+                    lower.contains(".messaging") ||
+                    lower.contains(".im")
+        }
+
         // Configurable Guard Toggles
         var isIncognitoBlockEnabled: Boolean = true
         var isNsfwFilterEnabled: Boolean = true
@@ -238,6 +366,9 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         private val _nsfwBlocks = AtomicLong(0L)
         val nsfwBlocksCount = MutableStateFlow(0L)
+
+        private val _chatWarnings = AtomicLong(0L)
+        val chatWarningsCount = MutableStateFlow(0L)
 
         private val _settingsBlocks = AtomicLong(0L)
         val settingsBlocksCount = MutableStateFlow(0L)

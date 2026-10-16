@@ -5,7 +5,7 @@
 </p>
 
 [![Build & Release ZevBlock APK](https://github.com/zevbuild/zevblock/actions/workflows/build.yml/badge.svg)](https://github.com/zevbuild/zevblock/actions/workflows/build.yml)
-[![Latest Release](https://img.shields.io/github/v/release/zevbuild/zevblock?label=Release&color=00E676)](https://github.com/zevbuild/zevblock/releases/tag/v1.3-stable)
+[![Latest Release](https://img.shields.io/github/v/release/zevbuild/zevblock?label=Release&color=00E676)](https://github.com/zevbuild/zevblock/releases/tag/v1.4-stable)
 [![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B%20%28API%2024--36%29-00B0FF)](https://developer.android.com)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device%20%7C%20Zero%20Telemetry-green)](https://github.com/zevbuild/zevblock)
 [![License](https://img.shields.io/badge/License-Open%20Source-blue)](LICENSE)
@@ -19,8 +19,8 @@ ZevBlock is a hardened, battery-efficient Android protection and accountability 
 Pre-compiled APKs are built directly by automated GitHub CI:
 
 ### Option A: From GitHub Releases (Recommended)
-1. Navigate to [**GitHub Releases**](https://github.com/zevbuild/zevblock/releases/tag/v1.3-stable).
-2. Under the latest **v1.3-stable** release, download `ZevBlock-v1.0-debug.apk` or `ZevBlock-latest.apk`.
+1. Navigate to [**GitHub Releases**](https://github.com/zevbuild/zevblock/releases/tag/v1.4-stable).
+2. Under the latest **v1.4-stable** release, download `ZevBlock-v1.0-debug.apk` or `ZevBlock-latest.apk`.
 3. Open the downloaded file on your Android device to install.
 
 ### Option B: From GitHub Actions CI Artifacts
@@ -84,7 +84,10 @@ Pre-compiled APKs are built directly by automated GitHub CI:
 
 ### 2. Universal Accessibility & On-Screen Guard (`ShieldAccessibilityService`)
 * **30+ Supported Mobile Browsers:** Extracts address bar URLs across Chrome, Firefox, Brave, Edge, Samsung Internet, Opera (GX, Touch, Mini), Kiwi, Via, Aloha, Vivaldi, Puffin, Tor Browser, Mint, Phoenix, UC Browser, and generic WebViews.
-* **Universal Screen Content Inspector:** Monitors on-screen window hierarchies across **any app** (including social apps, Reddit, and unlisted WebViews) for explicit adult titles or keywords, executing `GLOBAL_ACTION_BACK` and displaying a warning overlay.
+* **Smart Messaging & Chat Safeguard (WhatsApp, Telegram, Signal, Messages, Discord, etc.):**
+  * Monitors on-screen text in real time for vulgar or explicit keywords (`"xxx"`, adult terms, etc.).
+  * **Non-Intrusive Warning System:** Displays an instant Toast reminder and heads-up system notification with a 4-second throttle window—keeping users accountable **without interrupting typing or force-quitting their chat session**.
+* **Universal Screen Content Inspector:** Monitors on-screen window hierarchies across **any app** (including social apps, Reddit, and unlisted WebViews) for explicit adult titles or keywords, executing `GLOBAL_ACTION_BACK` and displaying a full-screen warning overlay.
 * **Incognito & Private Window Blocker:** Detects Incognito mode triggers and immediately closes the window.
 * **Intelligent NSFW Classifier (`NsfwContentDetector`):**
   * Multilingual explicit terms (English, Spanish, Portuguese, French, German).
