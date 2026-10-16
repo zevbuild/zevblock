@@ -40,12 +40,15 @@ import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -83,11 +86,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.accessibility.ShieldAccessibilityService
+import com.example.core.accessibility.NsfwContentDetector
 import com.example.core.admin.DeviceAdminManager
 import com.example.core.dns.DnsPacketBuilder
 import com.example.core.dns.DnsPacketParser
 import com.example.core.dns.DnsRecordType
 import com.example.core.security.TamperLockManager
+import com.example.ui.overlay.SecurityWarningOverlayActivity
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.ShieldAmber
 import com.example.ui.theme.ShieldBorderDark
@@ -148,14 +154,26 @@ fun ShieldGuardDashboard(
 
     // Live VPN State observation
     val isVpnRunning by DnsBlockerVpnService.isRunning.collectAsState()
-    val recentLogs by DnsBlockerVpnService.recentLogs.collectAsState()
     var ruleCount by remember { mutableStateOf(DnsBlockerVpnService.blocklistMatcher.getRuleCount()) }
     var safeSearchEnabled by remember { mutableStateOf(DnsBlockerVpnService.safeSearchManager.isEnabled) }
+
+    // Live Accessibility Service Observation
+    val isAccessibilityActive by ShieldAccessibilityService.isServiceActive.collectAsState()
+    var incognitoBlockEnabled by remember { mutableStateOf(ShieldAccessibilityService.isIncognitoBlockEnabled) }
+    var nsfwFilterEnabled by remember { mutableStateOf(ShieldAccessibilityService.isNsfwFilterEnabled) }
+    var settingsGuardEnabled by remember { mutableStateOf(ShieldAccessibilityService.isSettingsGuardEnabled) }
 
     // DNS Simulation State
     var testDomainInput by remember { mutableStateOf("www.google.com") }
     var testDomainResult by remember { mutableStateOf<String?>(null) }
     var testDomainActionType by remember { mutableStateOf<String?>(null) }
+
+    // Browser Scraper Simulation State
+    var testScraperInput by remember { mutableStateOf("https://www.google.com/search?q=free+xxx+video") }
+    var testScraperResult by remember { mutableStateOf<String?>(null) }
+    var testScraperAction by remember { mutableStateOf<String?>(null) }
+
+    val nsfwDetector = remember { NsfwContentDetector() }
 
     // VPN Prepare Launcher
     val vpnPrepareLauncher = rememberLauncherForActivityResult(
@@ -218,9 +236,9 @@ fun ShieldGuardDashboard(
                                 color = TextPrimaryDark
                             )
                             Text(
-                                text = if (isVpnRunning) "DNS Sinkhole Active" else "DNS Sinkhole Standby",
+                                text = "Deliverables 1, 2 & 3 Active",
                                 fontSize = 12.sp,
-                                color = if (isVpnRunning) ShieldGreen else ShieldTeal
+                                color = ShieldTeal
                             )
                         }
                     }
@@ -253,7 +271,69 @@ fun ShieldGuardDashboard(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Deliverable Status Banner
-            DeliverableBanner(isVpnRunning = isVpnRunning, rulesCount = ruleCount)
+            DeliverableBanner(
+                isVpnRunning = isVpnRunning,
+                isAccessibilityActive = isAccessibilityActive,
+                rulesCount = ruleCount
+            )
+
+            // Deliverable 3: Accessibility Service Browser Scraper & Settings Guard
+            AccessibilityGuardCard(
+                isAccessibilityActive = isAccessibilityActive,
+                incognitoEnabled = incognitoBlockEnabled,
+                nsfwEnabled = nsfwFilterEnabled,
+                settingsGuardEnabled = settingsGuardEnabled,
+                onOpenSettings = {
+                    ShieldAccessibilityService.openAccessibilitySettings(context)
+                },
+                onToggleIncognito = {
+                    incognitoBlockEnabled = it
+                    ShieldAccessibilityService.isIncognitoBlockEnabled = it
+                },
+                onToggleNsfw = {
+                    nsfwFilterEnabled = it
+                    ShieldAccessibilityService.isNsfwFilterEnabled = it
+                },
+                onToggleSettingsGuard = {
+                    settingsGuardEnabled = it
+                    ShieldAccessibilityService.isSettingsGuardEnabled = it
+                },
+                onTestOverlay = {
+                    SecurityWarningOverlayActivity.show(
+                        context,
+                        alertType = "Security Restriction Test",
+                        message = "This simulated alert demonstrates the Jetpack Compose warning overlay triggered on Incognito or settings tampering.",
+                        detail = "Triggered via ShieldGuard OS Dashboard"
+                    )
+                }
+            )
+
+            // Deliverable 3: Browser URL & Search Query Simulator
+            BrowserScraperSimulatorCard(
+                input = testScraperInput,
+                onInputChange = { testScraperInput = it },
+                resultText = testScraperResult,
+                actionText = testScraperAction,
+                onEvaluate = {
+                    val candidate = testScraperInput.trim()
+                    if (candidate.contains("incognito", ignoreCase = true) || candidate.contains("private", ignoreCase = true)) {
+                        testScraperAction = "Incognito Mode Detected"
+                        testScraperResult = "Trigger GLOBAL_ACTION_BACK + Warning Overlay: Private Browsing Prohibited"
+                    } else if (candidate.contains("settings") || candidate.contains("force stop", ignoreCase = true) || candidate.contains("uninstall", ignoreCase = true)) {
+                        testScraperAction = "Settings Tamper Detected"
+                        testScraperResult = "Trigger GLOBAL_ACTION_BACK + Warning Overlay: Prevented modification of ShieldGuard OS"
+                    } else {
+                        val nsfw = nsfwDetector.analyze(candidate)
+                        if (nsfw.isNsfw) {
+                            testScraperAction = "NSFW Content: ${nsfw.category}"
+                            testScraperResult = "Trigger GLOBAL_ACTION_BACK + Warning Overlay: Matched keyword '${nsfw.matchedTerm}'"
+                        } else {
+                            testScraperAction = "Clean Content"
+                            testScraperResult = "URL/Search query allowed: No adult keywords or tampering detected"
+                        }
+                    }
+                }
+            )
 
             // Deliverable 2: Local DNS Sinkhole & SafeSearch Card
             DnsSinkholeCard(
@@ -292,7 +372,7 @@ fun ShieldGuardDashboard(
                 }
             )
 
-            // DNS Query Inspector / Simulation Card
+            // DNS Simulation Card
             DnsSimulatorCard(
                 domainInput = testDomainInput,
                 onDomainInputChange = { testDomainInput = it },
@@ -300,7 +380,6 @@ fun ShieldGuardDashboard(
                 actionType = testDomainActionType,
                 onTestDomain = {
                     val clean = testDomainInput.trim()
-                    // 1. SafeSearch check
                     if (DnsBlockerVpnService.safeSearchManager.isEnabled &&
                         (clean == "www.google.com" || clean == "google.com" || clean.startsWith("www.google.") || clean.startsWith("google."))) {
                         testDomainActionType = "SafeSearch VIP"
@@ -309,7 +388,6 @@ fun ShieldGuardDashboard(
                         testDomainActionType = "SafeSearch VIP"
                         testDomainResult = "Intercepted by YouTube VIP -> 216.239.38.119 (Restricted Mode VIP)"
                     } else {
-                        // 2. Blocklist check
                         val blockResult = DnsBlockerVpnService.blocklistMatcher.isBlocked(clean)
                         if (blockResult.isBlocked) {
                             testDomainActionType = "Blocked"
@@ -393,7 +471,7 @@ fun ShieldGuardDashboard(
 }
 
 @Composable
-fun DeliverableBanner(isVpnRunning: Boolean, rulesCount: Int) {
+fun DeliverableBanner(isVpnRunning: Boolean, isAccessibilityActive: Boolean, rulesCount: Int) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -412,21 +490,303 @@ fun DeliverableBanner(isVpnRunning: Boolean, rulesCount: Int) {
                 modifier = Modifier
                     .size(10.dp)
                     .clip(CircleShape)
-                    .background(if (isVpnRunning) ShieldGreen else ShieldTeal)
+                    .background(if (isVpnRunning && isAccessibilityActive) ShieldGreen else ShieldTeal)
             )
             Spacer(modifier = Modifier.width(10.dp))
             Column {
                 Text(
-                    text = "Deliverables 1 & 2 Active: Core & DNS Sinkhole",
+                    text = "Deliverables 1, 2 & 3 Active: Anti-Bypass, Sinkhole & Guard",
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp,
                     color = TextPrimaryDark
                 )
                 Text(
-                    text = "TUN Interceptor • SafeSearch VIP • $rulesCount Rules Loaded",
+                    text = "Browser Scraper • Settings Guard • SafeSearch VIP • $rulesCount Rules",
                     fontSize = 12.sp,
                     color = TextSecondaryDark
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun AccessibilityGuardCard(
+    isAccessibilityActive: Boolean,
+    incognitoEnabled: Boolean,
+    nsfwEnabled: Boolean,
+    settingsGuardEnabled: Boolean,
+    onOpenSettings: () -> Unit,
+    onToggleIncognito: (Boolean) -> Unit,
+    onToggleNsfw: (Boolean) -> Unit,
+    onToggleSettingsGuard: (Boolean) -> Unit,
+    onTestOverlay: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("accessibility_guard_card"),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Visibility,
+                        contentDescription = "Accessibility Guard",
+                        tint = if (isAccessibilityActive) ShieldGreen else ShieldAmber,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Browser Scraper & Settings Guard",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = TextPrimaryDark
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isAccessibilityActive) ShieldGreen.copy(alpha = 0.15f) else ShieldAmber.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = if (isAccessibilityActive) "SERVICE ACTIVE" else "NOT ENABLED",
+                        color = if (isAccessibilityActive) ShieldGreen else ShieldAmber,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "Scrapes address bar URLs in Chrome, Firefox & Brave. Detects Incognito mode, explicit search queries, and intercepts com.android.settings tampering.",
+                fontSize = 12.sp,
+                color = TextSecondaryDark,
+                lineHeight = 16.sp
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Toggles
+            GuardToggleRow(
+                title = "Block Incognito & Private Windows",
+                subtitle = "Executes BACK when Incognito tab is opened",
+                checked = incognitoEnabled,
+                onCheckedChange = onToggleIncognito,
+                tag = "incognito_toggle"
+            )
+
+            GuardToggleRow(
+                title = "Filter NSFW URLs & Search Queries",
+                subtitle = "Scrapes address bar and search parameters",
+                checked = nsfwEnabled,
+                onCheckedChange = onToggleNsfw,
+                tag = "nsfw_toggle"
+            )
+
+            GuardToggleRow(
+                title = "Settings Anti-Tamper Guard",
+                subtitle = "Blocks force-stop, uninstall, and VPN changes",
+                checked = settingsGuardEnabled,
+                onCheckedChange = onToggleSettingsGuard,
+                tag = "settings_guard_toggle"
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onOpenSettings,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("open_accessibility_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = ShieldTeal),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Accessibility Settings", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+
+                OutlinedButton(
+                    onClick = onTestOverlay,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("test_overlay_button"),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(16.dp), tint = ShieldAmber)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Preview Overlay", fontSize = 11.sp, color = TextPrimaryDark)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GuardToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    tag: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextPrimaryDark)
+            Text(subtitle, fontSize = 11.sp, color = TextSecondaryDark)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = ShieldGreen,
+                checkedTrackColor = ShieldGreenDark.copy(alpha = 0.5f)
+            ),
+            modifier = Modifier.testTag(tag)
+        )
+    }
+}
+
+@Composable
+fun BrowserScraperSimulatorCard(
+    input: String,
+    onInputChange: (String) -> Unit,
+    resultText: String?,
+    actionText: String?,
+    onEvaluate: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("scraper_simulator_card"),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Test Scraper",
+                    tint = ShieldAmber,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Browser Scraper & Guard Tester",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = TextPrimaryDark
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "Enter a URL, search query parameter, or settings target to test immediate detection and overlay response.",
+                fontSize = 12.sp,
+                color = TextSecondaryDark
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = onInputChange,
+                    placeholder = { Text("e.g. https://www.google.com/search?q=free+xxx", color = TextMutedDark, fontSize = 12.sp) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("scraper_test_input"),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ShieldAmber,
+                        unfocusedBorderColor = ShieldBorderDark,
+                        focusedTextColor = TextPrimaryDark,
+                        unfocusedTextColor = TextPrimaryDark
+                    )
+                )
+
+                Button(
+                    onClick = onEvaluate,
+                    modifier = Modifier
+                        .height(56.dp)
+                        .testTag("evaluate_scraper_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = ShieldAmber),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Inspect", fontWeight = FontWeight.Bold, color = ShieldNavyDark)
+                }
+            }
+
+            if (resultText != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                val isBlocked = actionText?.contains("Clean") != true
+                val badgeColor = if (isBlocked) ShieldRed else ShieldGreen
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(badgeColor.copy(alpha = 0.15f))
+                        .border(1.dp, badgeColor.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (isBlocked) Icons.Default.Block else Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = badgeColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = actionText ?: "Evaluation",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = badgeColor
+                            )
+                            Text(
+                                text = resultText,
+                                fontSize = 12.sp,
+                                color = TextPrimaryDark,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
             }
         }
     }

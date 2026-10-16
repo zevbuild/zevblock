@@ -36,6 +36,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Security Warning Translucent Overlay Activity -->
+        <activity
+            android:name=".ui.overlay.SecurityWarningOverlayActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen" />
+
         <!-- Local DNS Sinkhole VPN Service -->
         <service
             android:name=".vpn.DnsBlockerVpnService"

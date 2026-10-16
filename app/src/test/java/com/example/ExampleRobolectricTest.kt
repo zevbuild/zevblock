@@ -225,4 +225,35 @@ class ExampleRobolectricTest {
         assertTrue(parsedBack.srcIp.contentEquals(dstIp))
         assertTrue(parsedBack.dstIp.contentEquals(srcIp))
     }
+
+    @Test
+    fun `test nsfw content detector for keywords and search queries`() {
+        val detector = com.example.core.accessibility.NsfwContentDetector()
+
+        // Explicit direct domains and keywords
+        assertTrue(detector.analyze("https://www.pornhub.com").isNsfw)
+        assertTrue(detector.analyze("http://xxx-free-videos.net").isNsfw)
+        assertTrue(detector.analyze("leetspeak-p0rn-site.com").isNsfw)
+
+        // Search engine URL query parameter extraction
+        val googleSearch = "https://www.google.com/search?q=free+xxx+videos&source=android"
+        val searchResult = detector.analyze(googleSearch)
+        assertTrue(searchResult.isNsfw)
+        assertEquals("xxx", searchResult.matchedTerm)
+
+        // Clean queries (avoid false positives like "essex")
+        assertFalse(detector.analyze("https://en.wikipedia.org/wiki/Essex").isNsfw)
+        assertFalse(detector.analyze("https://kotlinlang.org/docs/home.html").isNsfw)
+        assertFalse(detector.analyze("https://github.com").isNsfw)
+    }
+
+    @Test
+    fun `test browser url extractor supported packages`() {
+        val extractor = com.example.core.accessibility.BrowserUrlExtractor()
+        assertTrue(extractor.isSupportedBrowser("com.android.chrome"))
+        assertTrue(extractor.isSupportedBrowser("org.mozilla.firefox"))
+        assertTrue(extractor.isSupportedBrowser("com.brave.browser"))
+        assertTrue(extractor.isSupportedBrowser("com.microsoft.emmx"))
+        assertFalse(extractor.isSupportedBrowser("com.android.calculator2"))
+    }
 }
