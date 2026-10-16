@@ -6,6 +6,23 @@ ZevBlock is a hardened open-source Android protection platform designed to enfor
 
 ---
 
+## 📦 Download & Install APK
+
+You can download the pre-compiled APK directly from GitHub:
+
+### Option A: From GitHub Releases (Recommended)
+1. Go to the [**Releases**](https://github.com/) section on the right side of this repository.
+2. Under the latest release, download `ZevBlock-v1.0-debug.apk`.
+3. Tap the downloaded APK on your Android phone to install.
+
+### Option B: From GitHub Actions (Automated CI Builds)
+1. Navigate to the [**Actions**](https://github.com/) tab at the top of the repository.
+2. Click on the latest workflow run under **"Build & Release ZevBlock APK"**.
+3. Scroll down to the **Artifacts** section at the bottom of the page.
+4. Click **`ZevBlock-v1.0-debug-apk`** to download the ZIP file containing the APK.
+
+---
+
 ## 🛡️ Core Defense Pillars
 
 ### 1. Device Owner & Anti-Uninstall Lockdown
