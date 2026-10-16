@@ -64,7 +64,9 @@ import com.example.core.stats.ProtectionStatsManager
 import com.example.core.updater.AppUpdateManager
 import com.example.core.updater.UpdateStatus
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale

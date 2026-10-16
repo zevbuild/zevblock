@@ -146,7 +146,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                     val windowNsfw = inspectWindowForNsfw(rootNode, depth = 0)
                     if (windowNsfw != null) {
                         Log.w(TAG, "Vulgar keyword in messaging app $packageName: '${windowNsfw.matchedTerm}' (warning alert only)")
-                        showChatWarning(windowNsfw.matchedTerm, packageName)
+                        showChatWarning(windowNsfw.matchedTerm ?: "explicit keyword", packageName)
                         val chatCount = _chatWarnings.incrementAndGet()
                         chatWarningsCount.value = chatCount
                         val nsfwCount = _nsfwBlocks.incrementAndGet()
