@@ -65,6 +65,56 @@ class ShieldAccessibilityService : AccessibilityService() {
             nsfwContentDetector.setCustomKeywords(it.customKeywords.value)
         }
 
+        // =====================================================================
+        // Real-time Keystroke & Input Scraper for Messaging Apps (WhatsApp, etc.)
+        // Inspects text while typing, before full window tree traversal.
+        // =====================================================================
+        if (isNsfwFilterEnabled && isMessagingApp(packageName)) {
+            val eventTexts = event.text
+            if (!eventTexts.isNullOrEmpty()) {
+                for (charSeq in eventTexts) {
+                    val typed = charSeq?.toString()
+                    if (!typed.isNullOrBlank()) {
+                        val nsfwResult = nsfwContentDetector.analyze(typed)
+                        val shouldWarn = if (isBypassActive) nsfwResult.category != "Custom Blocked Keyword" else true
+                        if (nsfwResult.isNsfw && shouldWarn) {
+                            Log.w(TAG, "Vulgar keyword in $packageName typing event: '${nsfwResult.matchedTerm}'")
+                            showChatWarning(nsfwResult.matchedTerm ?: "explicit keyword", packageName)
+                            val chatCount = _chatWarnings.incrementAndGet()
+                            chatWarningsCount.value = chatCount
+                            val nsfwCount = _nsfwBlocks.incrementAndGet()
+                            nsfwBlocksCount.value = nsfwCount
+                            logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${nsfwResult.matchedTerm}")
+                            statsManager?.recordChatWarning()
+                            return
+                        }
+                    }
+                }
+            }
+
+            val sourceNode = event.source
+            if (sourceNode != null && !sourceNode.isPassword) {
+                val sourceText = sourceNode.text?.toString()
+                if (!sourceText.isNullOrBlank()) {
+                    val nsfwResult = nsfwContentDetector.analyze(sourceText)
+                    val shouldWarn = if (isBypassActive) nsfwResult.category != "Custom Blocked Keyword" else true
+                    if (nsfwResult.isNsfw && shouldWarn) {
+                        Log.w(TAG, "Vulgar keyword in $packageName source node: '${nsfwResult.matchedTerm}'")
+                        showChatWarning(nsfwResult.matchedTerm ?: "explicit keyword", packageName)
+                        val chatCount = _chatWarnings.incrementAndGet()
+                        chatWarningsCount.value = chatCount
+                        val nsfwCount = _nsfwBlocks.incrementAndGet()
+                        nsfwBlocksCount.value = nsfwCount
+                        logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${nsfwResult.matchedTerm}")
+                        statsManager?.recordChatWarning()
+                        sourceNode.recycle()
+                        return
+                    }
+                }
+                sourceNode.recycle()
+            }
+        }
+
         try {
             val rootNode: AccessibilityNodeInfo? = rootInActiveWindow
 
@@ -234,7 +284,7 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     private fun inspectWindowForNsfw(node: AccessibilityNodeInfo?, depth: Int): com.zevbuild.zevblock.core.accessibility.NsfwDetectionResult? {
-        if (node == null || depth > 5) return null
+        if (node == null || depth > 16) return null
         if (node.isPassword) return null
 
         val text = node.text?.toString()

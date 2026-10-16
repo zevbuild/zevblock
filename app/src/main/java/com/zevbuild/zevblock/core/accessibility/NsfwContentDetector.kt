@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.accessibility
+package com.zevbuild.zevblock.core.accessibility
 
 import java.net.URLDecoder
 
@@ -12,7 +12,7 @@ class NsfwContentDetector {
     // Keywords mapped to classifications
     private val nsfwKeywords = listOf(
         // Primary explicit terms & acts
-        "porn", "porno", "xxx", "sex", "nude", "naked", "erotic", "nsfw",
+        "porn", "porno", "pornhub", "pornography", "pornographic", "xxx", "sex", "nude", "naked", "erotic", "nsfw",
         "hentai", "camgirl", "chaturbate", "onlyfans", "fansly", "redtube", "youporn",
         "xvideos", "xnxx", "xhamster", "brazzers", "playboy", "penthouse",
         "blowjob", "handjob", "masturbat", "orgasm", "gangbang", "fetish",
@@ -146,6 +146,11 @@ class NsfwContentDetector {
     private fun containsWordOrPattern(text: String, keyword: String): Boolean {
         // Fast direct check
         if (!text.contains(keyword)) return false
+
+        // Terms like "porn" or "porno" have no benign English usage and should match compound terms (e.g. pornhub, freeporn)
+        if (keyword == "porn" || keyword == "porno") {
+            return true
+        }
 
         // For words with length <= 5 or short terms (e.g. "anal", "dick", "sex", "xxx", "cum"),
         // enforce word boundaries so harmless words like "analysis", "canal", "essex", "document" are not falsely flagged.

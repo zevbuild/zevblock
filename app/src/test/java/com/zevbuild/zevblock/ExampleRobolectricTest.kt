@@ -254,6 +254,9 @@ class ExampleRobolectricTest {
 
         // Explicit direct domains and keywords
         assertTrue(detector.analyze("https://www.pornhub.com").isNsfw)
+        assertTrue(detector.analyze("pornhub.com").isNsfw)
+        assertTrue(detector.analyze("pornhub").isNsfw)
+        assertTrue(detector.analyze("freeporn").isNsfw)
         assertTrue(detector.analyze("http://xxx-free-videos.net").isNsfw)
         assertTrue(detector.analyze("leetspeak-p0rn-site.com").isNsfw)
 
