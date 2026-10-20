@@ -467,4 +467,130 @@ class ExampleRobolectricTest {
         lockManager.cancelTemporaryBypass()
         assertFalse(lockManager.isBypassActive())
     }
+
+    @Test
+    fun `test decoupled virtual dns client and sinkhole gateway response wrapping`() {
+        val clientIp = java.net.InetAddress.getByName("10.254.1.2").address
+        val gatewayDnsIp = java.net.InetAddress.getByName("10.254.1.1").address
+
+        // Sample DNS query for pornhub.com
+        val rawDnsQuery = byteArrayOf(
+            0x12, 0x34, // ID
+            0x01, 0x00, // Standard query, RD=1
+            0x00, 0x01, // QDCOUNT = 1
+            0x00, 0x00, // ANCOUNT = 0
+            0x00, 0x00, // NSCOUNT = 0
+            0x00, 0x00, // ARCOUNT = 0
+            0x07, 0x70, 0x6f, 0x72, 0x6e, 0x68, 0x75, 0x62, // "pornhub"
+            0x03, 0x63, 0x6f, 0x6d, // "com"
+            0x00, // null root
+            0x00, 0x01, // Type A
+            0x00, 0x01  // Class IN
+        )
+
+        val incoming = IpUdpPacket(
+            isIpv6 = false,
+            srcIp = clientIp,
+            dstIp = gatewayDnsIp,
+            srcPort = 42100,
+            dstPort = 53,
+            payload = rawDnsQuery
+        )
+
+        val parsedQuery = DnsPacketParser.parseDnsQuery(rawDnsQuery)
+        assertNotNull(parsedQuery)
+        assertEquals("pornhub.com", parsedQuery!!.question.name)
+
+        // Built-in adult domain MUST be blocked
+        val matcher = DomainBlocklistMatcher()
+        assertTrue(matcher.isHardcodedAdultDomain(parsedQuery.question.name))
+
+        val sinkholeResponse = DnsPacketBuilder.buildSinkholeResponse(parsedQuery, blockedIp = "0.0.0.0")
+        val wrapped = DnsPacketBuilder.wrapDnsResponseInUdpIp(incoming, sinkholeResponse)
+        assertNotNull(wrapped)
+
+        val parsedBack = DnsPacketParser.parseIpPacket(wrapped, wrapped.size)
+        assertNotNull(parsedBack)
+        assertEquals(53, parsedBack!!.srcPort)
+        assertEquals(42100, parsedBack.dstPort)
+        // Response source IP must be the local DNS gateway (10.254.1.1)
+        assertTrue(parsedBack.srcIp.contentEquals(gatewayDnsIp))
+        // Response destination IP must be the decoupled virtual client (10.254.1.2)
+        assertTrue(parsedBack.dstIp.contentEquals(clientIp))
+    }
+
+    @Test
+    fun `test intercepted public dns routing preserves destination as source in response`() {
+        val clientIp = java.net.InetAddress.getByName("10.254.1.2").address
+        val publicDnsIp = java.net.InetAddress.getByName("8.8.8.8").address
+
+        val rawDnsQuery = byteArrayOf(
+            0xAB.toByte(), 0xCD.toByte(),
+            0x01, 0x00,
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // example
+            0x03, 0x63, 0x6f, 0x6d, // com
+            0x00,
+            0x00, 0x01, 0x00, 0x01
+        )
+
+        val incoming = IpUdpPacket(
+            isIpv6 = false,
+            srcIp = clientIp,
+            dstIp = publicDnsIp,
+            srcPort = 38450,
+            dstPort = 53,
+            payload = rawDnsQuery
+        )
+
+        val parsedQuery = DnsPacketParser.parseDnsQuery(rawDnsQuery)!!
+        val answer = DnsPacketBuilder.buildAResponse(parsedQuery, "93.184.216.34")
+        val wrapped = DnsPacketBuilder.wrapDnsResponseInUdpIp(incoming, answer)
+        val parsedBack = DnsPacketParser.parseIpPacket(wrapped, wrapped.size)
+
+        assertNotNull(parsedBack)
+        assertEquals(53, parsedBack!!.srcPort)
+        assertEquals(38450, parsedBack.dstPort)
+        // Client queried 8.8.8.8, so answer source must appear to come from 8.8.8.8
+        assertTrue(parsedBack.srcIp.contentEquals(publicDnsIp))
+        assertTrue(parsedBack.dstIp.contentEquals(clientIp))
+    }
+
+    @Test
+    fun `test dual stack ipv6 decoupled dns routing and response`() {
+        val clientIpv6 = java.net.InetAddress.getByName("fd00::2").address
+        val gatewayIpv6 = java.net.InetAddress.getByName("fd00::1").address
+
+        val rawDnsQuery = byteArrayOf(
+            0x55, 0xAA.toByte(),
+            0x01, 0x00,
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, // google
+            0x03, 0x63, 0x6f, 0x6d, // com
+            0x00,
+            0x00, 0x1C, // Type AAAA
+            0x00, 0x01  // Class IN
+        )
+
+        val incoming = IpUdpPacket(
+            isIpv6 = true,
+            srcIp = clientIpv6,
+            dstIp = gatewayIpv6,
+            srcPort = 45678,
+            dstPort = 53,
+            payload = rawDnsQuery
+        )
+
+        val parsedQuery = DnsPacketParser.parseDnsQuery(rawDnsQuery)!!
+        val answer = DnsPacketBuilder.buildAaaaResponse(parsedQuery, "2607:f8b0:4005:805::200e")
+        val wrapped = DnsPacketBuilder.wrapDnsResponseInUdpIp(incoming, answer)
+        val parsedBack = DnsPacketParser.parseIpPacket(wrapped, wrapped.size)
+
+        assertNotNull(parsedBack)
+        assertTrue(parsedBack!!.isIpv6)
+        assertEquals(53, parsedBack.srcPort)
+        assertEquals(45678, parsedBack.dstPort)
+        assertTrue(parsedBack.srcIp.contentEquals(gatewayIpv6))
+        assertTrue(parsedBack.dstIp.contentEquals(clientIpv6))
+    }
 }

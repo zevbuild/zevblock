@@ -72,15 +72,37 @@ open class DnsBlockerVpnService : VpnService() {
                 .setSession("ZevBlock DNS Sinkhole")
                 .setMtu(1500)
                 .setBlocking(true)
-                // Virtual DNS sinkhole endpoint
-                .addAddress("10.254.1.1", 32)
-                .addAddress("fd00::1", 128)
-                // Assign local sinkhole as system DNS server
+                // Virtual client endpoint (Decoupled from DNS Server IP to prevent Linux loopback capture!)
+                .addAddress("10.254.1.2", 32)
+                .addAddress("fd00::2", 128)
+                // Assign local sinkhole virtual gateway as system DNS server
                 .addDnsServer("10.254.1.1")
                 .addDnsServer("fd00::1")
                 // Route only virtual DNS traffic through TUN to preserve native TCP/UDP speed!
                 .addRoute("10.254.1.1", 32)
                 .addRoute("fd00::1", 128)
+                // Intercept common hardcoded public DNS servers to prevent app bypasses
+                .addRoute("8.8.8.8", 32)
+                .addRoute("8.8.4.4", 32)
+                .addRoute("1.1.1.1", 32)
+                .addRoute("1.0.0.1", 32)
+                .addRoute("9.9.9.9", 32)
+                .addRoute("94.140.14.14", 32)
+
+            // Exclude self application from VPN routing to avoid socket loopback deadlocks
+            try {
+                builder.addDisallowedApplication(packageName)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not disallow self package from VPN: ${e.message}")
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                try {
+                    builder.setUnderlyingNetworks(null)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not set underlying networks: ${e.message}")
+                }
+            }
 
             vpnInterface = builder.establish()
 
@@ -183,7 +205,8 @@ open class DnsBlockerVpnService : VpnService() {
     }
 
     /**
-     * Forwards a query to upstream Adult-Filtering DNS resolvers (Cloudflare 1.1.1.3 / CleanBrowsing 185.228.168.10)
+     * Forwards a query to upstream Adult-Filtering DNS resolvers
+     * (Cloudflare Family 1.1.1.3 / CleanBrowsing / AdGuard Family)
      * using a protected UDP socket that bypasses the local VPN TUN interface.
      */
     private fun forwardUpstreamDns(incomingIpPacket: IpUdpPacket, rawDnsQuery: ByteArray, fos: FileOutputStream) {
@@ -191,17 +214,33 @@ open class DnsBlockerVpnService : VpnService() {
         try {
             socket = DatagramSocket()
             protect(socket) // Critical: socket bypasses VPN interface!
-            socket.soTimeout = 2500 // 2.5 seconds timeout
+            socket.soTimeout = 1200 // 1.2s timeout for ultra-responsive fallback
 
-            val upstreamIps = listOf(
-                UPSTREAM_DNS_PRIMARY,
-                UPSTREAM_DNS_SECONDARY,
-                UPSTREAM_DNS_CLEANBROWSING
-            )
+            // Prioritize upstream resolvers based on whether client query arrived via IPv6 or IPv4
+            val upstreamServers = if (incomingIpPacket.isIpv6) {
+                listOf(
+                    UPSTREAM_DNS_CLOUDFLARE_IPV6_1,
+                    UPSTREAM_DNS_CLOUDFLARE_IPV4_1,
+                    UPSTREAM_DNS_CLEANBROWSING_IPV6,
+                    UPSTREAM_DNS_CLOUDFLARE_IPV6_2,
+                    UPSTREAM_DNS_ADGUARD_FAMILY_IPV6,
+                    UPSTREAM_DNS_CLOUDFLARE_IPV4_2,
+                    UPSTREAM_DNS_CLEANBROWSING_IPV4
+                )
+            } else {
+                listOf(
+                    UPSTREAM_DNS_CLOUDFLARE_IPV4_1,
+                    UPSTREAM_DNS_CLOUDFLARE_IPV4_2,
+                    UPSTREAM_DNS_CLEANBROWSING_IPV4,
+                    UPSTREAM_DNS_ADGUARD_FAMILY_IPV4,
+                    UPSTREAM_DNS_CLOUDFLARE_IPV6_1,
+                    UPSTREAM_DNS_CLEANBROWSING_IPV6
+                )
+            }
 
             var dnsAnswerPayload: ByteArray? = null
 
-            for (serverIp in upstreamIps) {
+            for (serverIp in upstreamServers) {
                 try {
                     val upstreamAddr = InetAddress.getByName(serverIp)
                     val sendPacket = DatagramPacket(rawDnsQuery, rawDnsQuery.size, upstreamAddr, 53)
@@ -214,9 +253,9 @@ open class DnsBlockerVpnService : VpnService() {
                     val payload = ByteArray(recvPacket.length)
                     System.arraycopy(recvBuffer, 0, payload, 0, recvPacket.length)
                     dnsAnswerPayload = payload
-                    break // Succeeded
+                    break // Succeeded with adult-filtered response
                 } catch (e: Exception) {
-                    // Try next resolver
+                    // Try next resolver in the pool
                     continue
                 }
             }
@@ -326,11 +365,25 @@ open class DnsBlockerVpnService : VpnService() {
         private const val NOTIFICATION_ID = 2001
         private const val MAX_RECENT_LOGS = 50
 
-        // Upstream Adult-Filtering Resolvers (Cloudflare Family 1.1.1.3 & CleanBrowsing Adult Filter)
-        const val UPSTREAM_DNS_PRIMARY = "1.1.1.3" // Cloudflare Family (Malware + Adult Content Block)
-        const val UPSTREAM_DNS_SECONDARY = "1.0.0.3" // Cloudflare Family Secondary
-        const val UPSTREAM_DNS_CLEANBROWSING = "185.228.168.10" // CleanBrowsing Adult Filter
-        const val UPSTREAM_DNS_ADGUARD_FAMILY = "94.140.14.15" // AdGuard Family Protection
+        // Upstream Adult-Filtering Resolvers (Dual-Stack IPv4 & IPv6)
+        // Cloudflare Family 1.1.1.3 (Malware + Adult Content Block)
+        const val UPSTREAM_DNS_CLOUDFLARE_IPV4_1 = "1.1.1.3"
+        const val UPSTREAM_DNS_CLOUDFLARE_IPV4_2 = "1.0.0.3"
+        const val UPSTREAM_DNS_CLOUDFLARE_IPV6_1 = "2606:4700:4700::1113"
+        const val UPSTREAM_DNS_CLOUDFLARE_IPV6_2 = "2606:4700:4700::1003"
+
+        // CleanBrowsing Adult Filter
+        const val UPSTREAM_DNS_CLEANBROWSING_IPV4 = "185.228.168.10"
+        const val UPSTREAM_DNS_CLEANBROWSING_IPV6 = "2a0d:5600:33:4::"
+
+        // AdGuard Family Protection
+        const val UPSTREAM_DNS_ADGUARD_FAMILY_IPV4 = "94.140.14.15"
+        const val UPSTREAM_DNS_ADGUARD_FAMILY_IPV6 = "2a10:50c0::bad1:ff"
+
+        // Backward compatibility aliases
+        const val UPSTREAM_DNS_PRIMARY = UPSTREAM_DNS_CLOUDFLARE_IPV4_1
+        const val UPSTREAM_DNS_SECONDARY = UPSTREAM_DNS_CLOUDFLARE_IPV4_2
+        const val UPSTREAM_DNS_CLEANBROWSING = UPSTREAM_DNS_CLEANBROWSING_IPV4
 
         // Global Shared State for UI binding
         private val _isRunning = MutableStateFlow(false)
