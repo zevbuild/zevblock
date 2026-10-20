@@ -5,7 +5,7 @@
 </p>
 
 [![Build & Release ZevBlock APK](https://github.com/zevbuild/zevblock/actions/workflows/build.yml/badge.svg)](https://github.com/zevbuild/zevblock/actions/workflows/build.yml)
-[![Latest Release](https://img.shields.io/github/v/release/zevbuild/zevblock?label=Release&color=00E676)](https://github.com/zevbuild/zevblock/releases/tag/v1.7-stable)
+[![Latest Release](https://img.shields.io/github/v/release/zevbuild/zevblock?label=Release&color=00E676)](https://github.com/zevbuild/zevblock/releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B%20%28API%2024--36%29-00B0FF)](https://developer.android.com)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device%20%7C%20Zero%20Telemetry-green)](https://github.com/zevbuild/zevblock)
 [![License](https://img.shields.io/badge/License-Open%20Source-blue)](LICENSE)
@@ -19,8 +19,8 @@ ZevBlock is a hardened, battery-efficient Android protection and accountability 
 Pre-compiled APKs are built directly by automated GitHub CI:
 
 ### Option A: From GitHub Releases (Recommended)
-1. Navigate to [**GitHub Releases**](https://github.com/zevbuild/zevblock/releases/tag/v1.7-stable).
-2. Under the latest **v1.7-stable** release, download `ZevBlock-v1.0-debug.apk` or `ZevBlock-latest.apk`.
+1. Navigate to [**GitHub Releases**](https://github.com/zevbuild/zevblock/releases/latest).
+2. Under the latest **v2.0** release, download `ZevBlock-v1.0-debug.apk` or `ZevBlock-latest.apk`.
 3. Open the downloaded file on your Android device to install.
 
 ### Option B: From GitHub Actions CI Artifacts
