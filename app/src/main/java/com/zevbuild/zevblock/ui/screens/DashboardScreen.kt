@@ -47,6 +47,16 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import com.zevbuild.zevblock.ui.components.AnimatedRollingCounter
+import com.zevbuild.zevblock.ui.components.NetworkTelemetryWaveCard
+import com.zevbuild.zevblock.ui.components.RadarPulseDot
+import com.zevbuild.zevblock.ui.components.SpringBounceBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -474,6 +484,7 @@ fun DashboardScreen(
                         modifier = Modifier.weight(1f),
                         title = "DNS Rules",
                         value = "$ruleCount",
+                        numericValue = ruleCount.toLong(),
                         color = ShieldTeal
                     )
                     MetricBox(
@@ -491,6 +502,12 @@ fun DashboardScreen(
                 }
             }
         }
+
+        // Live Real-Time Network Telemetry Visualizer Wave & Counters
+        NetworkTelemetryWaveCard(
+            isVpnRunning = isVpnRunning,
+            totalInspectedQueries = (allTimeBlocks + todayStat.totalBlocks + ruleCount * 4L).coerceAtLeast(18L)
+        )
 
         // 7-Day Visual Activity Bar Chart & Protection Streak
         WeeklyProtectionBarChart(
@@ -673,24 +690,32 @@ fun DashboardScreen(
                     }
                 } else {
                     combinedLogs.sortedByDescending { it.timestamp }.take(6).forEach { item ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        SpringBounceBox(
+                            modifier = Modifier.fillMaxWidth(),
+                            scaleDown = 0.98f
                         ) {
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(item.badgeColor)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(item.title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextPrimaryDark)
-                                Text(item.subtitle, fontSize = 11.sp, color = TextSecondaryDark)
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(ShieldNavyDark.copy(alpha = 0.4f))
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(item.badgeColor)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(item.title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextPrimaryDark)
+                                    Text(item.subtitle, fontSize = 11.sp, color = TextSecondaryDark)
+                                }
                             }
                         }
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
                 }
             }
@@ -754,19 +779,40 @@ fun DashboardScreen(
 }
 
 @Composable
-fun MetricBox(modifier: Modifier, title: String, value: String, color: Color) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(ShieldNavyDark)
-            .border(1.dp, ShieldBorderDark, RoundedCornerShape(10.dp))
-            .padding(vertical = 10.dp, horizontal = 8.dp),
-        contentAlignment = Alignment.Center
+fun MetricBox(
+    modifier: Modifier,
+    title: String,
+    value: String,
+    color: Color,
+    numericValue: Long? = null
+) {
+    SpringBounceBox(
+        modifier = modifier,
+        scaleDown = 0.95f
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = color)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(title, fontSize = 10.sp, color = TextSecondaryDark)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(ShieldNavyDark)
+                .border(1.dp, ShieldBorderDark, RoundedCornerShape(10.dp))
+                .padding(vertical = 10.dp, horizontal = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (numericValue != null) {
+                    AnimatedRollingCounter(
+                        value = numericValue,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = color
+                    )
+                } else {
+                    Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = color)
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(title, fontSize = 10.sp, color = TextSecondaryDark)
+            }
         }
     }
 }
@@ -781,36 +827,42 @@ fun ModuleStatusCard(
     activeColor: Color,
     onClick: () -> Unit
 ) {
-    Card(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(ShieldCardDark)
-            .border(1.dp, ShieldBorderDark, RoundedCornerShape(12.dp)),
-        colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
+    SpringBounceBox(
+        modifier = modifier,
+        scaleDown = 0.96f,
         onClick = onClick
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = if (active) activeColor else TextMutedDark,
-                    modifier = Modifier.size(20.dp)
-                )
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(if (active) activeColor else ShieldRed.copy(alpha = 0.5f))
-                )
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(ShieldCardDark)
+                .border(1.dp, ShieldBorderDark, RoundedCornerShape(12.dp)),
+            colors = CardDefaults.cardColors(containerColor = ShieldCardDark)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = if (active) activeColor else TextMutedDark,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    RadarPulseDot(
+                        active = active,
+                        activeColor = activeColor,
+                        inactiveColor = ShieldRed.copy(alpha = 0.5f),
+                        size = 8.dp
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimaryDark)
+                Text(subtitle, fontSize = 11.sp, color = TextSecondaryDark, maxLines = 1)
             }
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimaryDark)
-            Text(subtitle, fontSize = 11.sp, color = TextSecondaryDark, maxLines = 1)
         }
     }
 }
@@ -912,54 +964,66 @@ fun WeeklyProtectionBarChart(
                 verticalAlignment = Alignment.Bottom
             ) {
                 past7Days.forEach { day ->
-                    val fraction = (day.totalBlocks.toFloat() / maxBlocks).coerceIn(0.08f, 1f)
+                    val targetFraction = (day.totalBlocks.toFloat() / maxBlocks).coerceIn(0.08f, 1f)
+                    val animatedFraction by animateFloatAsState(
+                        targetValue = targetFraction,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessLow
+                        ),
+                        label = "bar_anim_${day.dayLabel}"
+                    )
                     val isToday = day.dayLabel == "Today"
 
-                    Column(
+                    SpringBounceBox(
                         modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Bottom
+                        scaleDown = 0.92f
                     ) {
-                        // Value label above bar
-                        Text(
-                            text = if (day.totalBlocks > 0) "${day.totalBlocks}" else "0",
-                            fontSize = 10.sp,
-                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isToday) ShieldGreen else TextSecondaryDark
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Bottom
+                        ) {
+                            // Value label above bar
+                            Text(
+                                text = if (day.totalBlocks > 0) "${day.totalBlocks}" else "0",
+                                fontSize = 10.sp,
+                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isToday) ShieldGreen else TextSecondaryDark
+                            )
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
 
-                        // Bar with gradient
-                        Box(
-                            modifier = Modifier
-                                .width(22.dp)
-                                .height((90 * fraction).dp)
-                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                                .background(
-                                    if (isToday) {
-                                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                                            listOf(ShieldGreen, ShieldTeal)
-                                        )
-                                    } else if (day.totalBlocks > 0) {
-                                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                                            listOf(ShieldTeal.copy(alpha = 0.8f), ShieldTeal.copy(alpha = 0.3f))
-                                        )
-                                    } else {
-                                        androidx.compose.ui.graphics.SolidColor(ShieldBorderDark)
-                                    }
-                                )
-                        )
+                            // Bar with gradient and spring height
+                            Box(
+                                modifier = Modifier
+                                    .width(22.dp)
+                                    .height((90 * animatedFraction).dp)
+                                    .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                    .background(
+                                        if (isToday) {
+                                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                listOf(ShieldGreen, ShieldTeal)
+                                            )
+                                        } else if (day.totalBlocks > 0) {
+                                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                listOf(ShieldTeal.copy(alpha = 0.8f), ShieldTeal.copy(alpha = 0.3f))
+                                            )
+                                        } else {
+                                            androidx.compose.ui.graphics.SolidColor(ShieldBorderDark)
+                                        }
+                                    )
+                            )
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
-                        // Day label (e.g. Mon, Tue, Today)
-                        Text(
-                            text = day.dayLabel,
-                            fontSize = 10.sp,
-                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isToday) ShieldGreen else TextSecondaryDark
-                        )
+                            // Day label (e.g. Mon, Tue, Today)
+                            Text(
+                                text = day.dayLabel,
+                                fontSize = 10.sp,
+                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isToday) ShieldGreen else TextSecondaryDark
+                            )
+                        }
                     }
                 }
             }

@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock
+package com.zevbuild.zevblock
 
 import android.app.Activity
 import android.content.ClipData
@@ -13,6 +13,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -371,93 +380,121 @@ fun ShieldGuardApp(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (selectedTab) {
-                0 -> DashboardScreen(
-                    deviceOwnerStatus = status,
-                    isVpnRunning = isVpnRunning,
-                    isAccessibilityActive = isAccessibilityActive,
-                    hasPartnerConfigured = tamperLockManager.getPartnerSecret() != null,
-                    isCooldownActive = isCooldownActive,
-                    isBypassActive = isBypassActive,
-                    bypassRemainingMs = bypassRemainingMs,
-                    ruleCount = ruleCount,
-                    dnsLogs = recentDnsLogs,
-                    accessibilityLogs = recentAccessibilityLogs,
-                    statsManager = statsManager,
-                    onToggleVpn = { launchVpn() },
-                    onApplyLockdown = {
-                        val ok = deviceAdminManager.applyAntiBypassLockdown()
-                        Toast.makeText(context, if (ok) "Lockdown Enforced" else "Requires Device Owner", Toast.LENGTH_SHORT).show()
-                        refreshAll()
-                    },
-                    onReleaseLockdown = {
-                        val ok = deviceAdminManager.releaseAntiBypassLockdown()
-                        Toast.makeText(context, if (ok) "Lockdown Released" else "Not permitted", Toast.LENGTH_SHORT).show()
-                        refreshAll()
-                    },
-                    onNavigateToSetup = { selectedTab = 3 },
-                    onCancelBypass = {
-                        tamperLockManager.cancelTemporaryBypass()
-                        isBypassActive = false
-                        bypassRemainingMs = 0L
-                    }
-                )
-
-                1 -> CustomRulesScreen(
-                    ruleManager = customRuleManager,
-                    hasPartnerConfigured = tamperLockManager.getPartnerSecret() != null,
-                    onNavigateToPartnerSetup = { selectedTab = 2 }
-                )
-
-                2 -> PartnerSetupScreen(
-                    tamperLockManager = tamperLockManager,
-                    isCooldownActive = isCooldownActive,
-                    cooldownRemainingMs = cooldownRemainingMs,
-                    isBypassActive = isBypassActive,
-                    bypassRemainingMs = bypassRemainingMs,
-                    onStartCooldown = { ms ->
-                        tamperLockManager.startCooldown(ms)
-                        isCooldownActive = true
-                        cooldownRemainingMs = ms
-                    },
-                    onCancelCooldown = {
-                        tamperLockManager.cancelCooldown()
-                        isCooldownActive = false
-                        cooldownRemainingMs = 0L
-                    },
-                    onStartBypass = { ms ->
-                        isBypassActive = true
-                        bypassRemainingMs = ms
-                    },
-                    onCancelBypass = {
-                        tamperLockManager.cancelTemporaryBypass()
-                        isBypassActive = false
-                        bypassRemainingMs = 0L
-                    }
-                )
-
-                3 -> OnboardingScreen(
-                    deviceOwnerStatus = status,
-                    isVpnRunning = isVpnRunning,
-                    isAccessibilityActive = isAccessibilityActive,
-                    onLaunchVpnPrepare = { launchVpn() },
-                    onNavigateToPartnerLock = { selectedTab = 2 },
-                    onViewPurposeMission = { showPurposeDisclaimer = true }
-                )
-
-                4 -> ToolsSimulatorScreen(
-                    onTestOverlay = {
-                        SecurityWarningOverlayActivity.show(
-                            context,
-                            alertType = "Security Test Alert",
-                            message = "This simulated alert demonstrates the Jetpack Compose warning overlay triggered when an anti-bypass violation occurs.",
-                            detail = "Triggered from Developer Tools"
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    val direction = if (targetState > initialState) 1 else -1
+                    (slideInHorizontally(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        initialOffsetX = { fullWidth -> direction * (fullWidth / 3) }
+                    ) + fadeIn(
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                    )).togetherWith(
+                        slideOutHorizontally(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            targetOffsetX = { fullWidth -> -direction * (fullWidth / 3) }
+                        ) + fadeOut(
+                            animationSpec = tween(120)
                         )
-                    },
-                    onViewPurposeMission = {
-                        showPurposeDisclaimer = true
-                    }
-                )
+                    )
+                },
+                label = "tab_screen_transition",
+                modifier = Modifier.fillMaxSize()
+            ) { tab ->
+                when (tab) {
+                    0 -> DashboardScreen(
+                        deviceOwnerStatus = status,
+                        isVpnRunning = isVpnRunning,
+                        isAccessibilityActive = isAccessibilityActive,
+                        hasPartnerConfigured = tamperLockManager.getPartnerSecret() != null,
+                        isCooldownActive = isCooldownActive,
+                        isBypassActive = isBypassActive,
+                        bypassRemainingMs = bypassRemainingMs,
+                        ruleCount = ruleCount,
+                        dnsLogs = recentDnsLogs,
+                        accessibilityLogs = recentAccessibilityLogs,
+                        statsManager = statsManager,
+                        onToggleVpn = { launchVpn() },
+                        onApplyLockdown = {
+                            val ok = deviceAdminManager.applyAntiBypassLockdown()
+                            Toast.makeText(context, if (ok) "Lockdown Enforced" else "Requires Device Owner", Toast.LENGTH_SHORT).show()
+                            refreshAll()
+                        },
+                        onReleaseLockdown = {
+                            val ok = deviceAdminManager.releaseAntiBypassLockdown()
+                            Toast.makeText(context, if (ok) "Lockdown Released" else "Not permitted", Toast.LENGTH_SHORT).show()
+                            refreshAll()
+                        },
+                        onNavigateToSetup = { selectedTab = 3 },
+                        onCancelBypass = {
+                            tamperLockManager.cancelTemporaryBypass()
+                            isBypassActive = false
+                            bypassRemainingMs = 0L
+                        }
+                    )
+
+                    1 -> CustomRulesScreen(
+                        ruleManager = customRuleManager,
+                        hasPartnerConfigured = tamperLockManager.getPartnerSecret() != null,
+                        onNavigateToPartnerSetup = { selectedTab = 2 }
+                    )
+
+                    2 -> PartnerSetupScreen(
+                        tamperLockManager = tamperLockManager,
+                        isCooldownActive = isCooldownActive,
+                        cooldownRemainingMs = cooldownRemainingMs,
+                        isBypassActive = isBypassActive,
+                        bypassRemainingMs = bypassRemainingMs,
+                        onStartCooldown = { ms ->
+                            tamperLockManager.startCooldown(ms)
+                            isCooldownActive = true
+                            cooldownRemainingMs = ms
+                        },
+                        onCancelCooldown = {
+                            tamperLockManager.cancelCooldown()
+                            isCooldownActive = false
+                            cooldownRemainingMs = 0L
+                        },
+                        onStartBypass = { ms ->
+                            isBypassActive = true
+                            bypassRemainingMs = ms
+                        },
+                        onCancelBypass = {
+                            tamperLockManager.cancelTemporaryBypass()
+                            isBypassActive = false
+                            bypassRemainingMs = 0L
+                        }
+                    )
+
+                    3 -> OnboardingScreen(
+                        deviceOwnerStatus = status,
+                        isVpnRunning = isVpnRunning,
+                        isAccessibilityActive = isAccessibilityActive,
+                        onLaunchVpnPrepare = { launchVpn() },
+                        onNavigateToPartnerLock = { selectedTab = 2 },
+                        onViewPurposeMission = { showPurposeDisclaimer = true }
+                    )
+
+                    4 -> ToolsSimulatorScreen(
+                        onTestOverlay = {
+                            SecurityWarningOverlayActivity.show(
+                                context,
+                                alertType = "Security Test Alert",
+                                message = "This simulated alert demonstrates the Jetpack Compose warning overlay triggered when an anti-bypass violation occurs.",
+                                detail = "Triggered from Developer Tools"
+                            )
+                        },
+                        onViewPurposeMission = {
+                            showPurposeDisclaimer = true
+                        }
+                    )
+                }
             }
         }
     }

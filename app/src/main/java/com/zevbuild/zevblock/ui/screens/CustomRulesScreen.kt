@@ -1,7 +1,17 @@
-﻿package com.zevbuild.zevblock.ui.screens
+package com.zevbuild.zevblock.ui.screens
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import com.zevbuild.zevblock.ui.components.SpringBounceBox
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -226,9 +236,39 @@ fun CustomRulesScreen(
             )
         }
 
-        // TAB 0: CUSTOM DOMAINS (DNS SINKHOLE)
-        if (selectedRuleTab == 0) {
-            Card(
+        // Animated Tab Content: Domains vs Keywords
+        AnimatedContent(
+            targetState = selectedRuleTab,
+            transitionSpec = {
+                val direction = if (targetState > initialState) 1 else -1
+                (slideInHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    initialOffsetX = { fullWidth -> direction * (fullWidth / 3) }
+                ) + fadeIn(
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                )).togetherWith(
+                    slideOutHorizontally(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        targetOffsetX = { fullWidth -> -direction * (fullWidth / 3) }
+                    ) + fadeOut(
+                        animationSpec = tween(120)
+                    )
+                )
+            },
+            label = "rules_tab_switch"
+        ) { tab ->
+            if (tab == 0) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
@@ -339,9 +379,12 @@ fun CustomRulesScreen(
                 }
             }
         }
-
-        // TAB 1: CUSTOM KEYWORDS (SCREEN & CHAT INSPECTOR)
-        if (selectedRuleTab == 1) {
+    } else {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // TAB 1: CUSTOM KEYWORDS (SCREEN & CHAT INSPECTOR)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -453,6 +496,8 @@ fun CustomRulesScreen(
                 }
             }
         }
+    }
+}
     }
 
     // REMOVAL CONFIRMATION & AUTHENTICATION DIALOG
@@ -584,25 +629,30 @@ fun CustomItemRow(
     subtitle: String,
     onDelete: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(ShieldSurfaceDark)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+    SpringBounceBox(
+        modifier = Modifier.fillMaxWidth(),
+        scaleDown = 0.98f
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(imageVector = Icons.Default.Lock, contentDescription = "Locked Rule", tint = ShieldTeal, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(10.dp))
-            Column {
-                Text(text = item, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimaryDark)
-                Text(text = subtitle, fontSize = 11.sp, color = TextSecondaryDark)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(ShieldSurfaceDark)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(imageVector = Icons.Default.Lock, contentDescription = "Locked Rule", tint = ShieldTeal, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(text = item, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimaryDark)
+                    Text(text = subtitle, fontSize = 11.sp, color = TextSecondaryDark)
+                }
             }
-        }
-        IconButton(onClick = onDelete) {
-            Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = ShieldRed.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
+            IconButton(onClick = onDelete) {
+                Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = ShieldRed.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

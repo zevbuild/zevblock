@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.ui.screens
+package com.zevbuild.zevblock.ui.screens
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import com.zevbuild.zevblock.ui.components.RadarPulseDot
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -665,11 +666,11 @@ fun StatusChip(active: Boolean) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(if (active) ShieldGreen else ShieldAmber)
+            RadarPulseDot(
+                active = active,
+                activeColor = ShieldGreen,
+                inactiveColor = ShieldAmber,
+                size = 6.dp
             )
             Spacer(modifier = Modifier.width(5.dp))
             Text(

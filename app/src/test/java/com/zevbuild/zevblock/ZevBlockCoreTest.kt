@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock
+package com.zevbuild.zevblock
 
 import com.zevbuild.zevblock.core.accessibility.NsfwContentDetector
 import com.zevbuild.zevblock.core.dns.DnsPacketBuilder
@@ -15,6 +15,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.io.ByteArrayOutputStream
 
 /**
@@ -22,6 +25,8 @@ import java.io.ByteArrayOutputStream
  * DNS packet parsing/synthesis, SafeSearch VIP rewriting,
  * and cryptographic integrity safeguards.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class ZevBlockCoreTest {
 
     // =========================================================================
@@ -180,8 +185,8 @@ class ZevBlockCoreTest {
 
         val incomingIpPacket = IpUdpPacket(
             isIpv6 = false,
-            srcIp = byteArrayOf(10, 254, 1, 2),
-            dstIp = byteArrayOf(10, 254, 1, 1),
+            srcIp = byteArrayOf(10, 254.toByte(), 1, 2),
+            dstIp = byteArrayOf(10, 254.toByte(), 1, 1),
             srcPort = 54321,
             dstPort = 53,
             payload = queryBytes

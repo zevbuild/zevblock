@@ -20,13 +20,13 @@ Pre-compiled APKs are built directly by automated GitHub CI:
 
 ### Option A: From GitHub Releases (Recommended)
 1. Navigate to [**GitHub Releases**](https://github.com/zevbuild/zevblock/releases/latest).
-2. Under the latest **v2.0** release, download `ZevBlock-v1.0-debug.apk` or `ZevBlock-latest.apk`.
+2. Under the latest **v2.0** release, download `ZevBlock-v2.0.apk` or `ZevBlock-latest.apk`.
 3. Open the downloaded file on your Android device to install.
 
 ### Option B: From GitHub Actions CI Artifacts
 1. Go to the [**Actions**](https://github.com/zevbuild/zevblock/actions) tab.
 2. Select the latest run of **"Build & Release ZevBlock APK"**.
-3. Under the **Artifacts** section at the bottom, download `ZevBlock-v1.0-debug-apk.zip` containing the pre-compiled APK.
+3. Under the **Artifacts** section at the bottom, download `ZevBlock-v2.0-apk.zip` containing the pre-compiled APK.
 
 ---
 

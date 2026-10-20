@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.security
+package com.zevbuild.zevblock.core.security
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -94,7 +94,7 @@ class TamperLockManager(private val context: Context) {
     /**
      * RFC 6238 HMAC-SHA1 calculation for a given time step.
      */
-    private fun generateTotpCodeForStep(base32Secret: String, step: Long): String {
+    fun generateTotpCodeForStep(base32Secret: String, step: Long): String {
         val keyBytes = Base32.decode(base32Secret)
         val data = ByteBuffer.allocate(8).putLong(step).array()
 
