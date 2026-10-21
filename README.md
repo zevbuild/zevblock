@@ -244,10 +244,17 @@ zevblock/
 
 ---
 
-## 🔒 Security, Safety & Privacy Guarantee
+## 🔒 Security, Safety & Privacy Disclosures
 
-* **100% On-Device Processing:** All domain matching, SafeSearch rewriting, and URL keyword scraping occur entirely in local device memory (RAM).
-* **Zero Cloud Leakage:** No browsing logs, visited domains, search queries, or analytics are ever transmitted to remote servers.
+* **Local Inspection & Memory Processing:** Domain matching, SafeSearch rewriting, and URL keyword scraping occur entirely in local device memory (RAM).
+* **Network Disclosures:**
+  * **Upstream DNS Resolution:** Clean, unblocked domain queries are forwarded over UDP port 53 to configured adult-filtering upstream resolvers (Cloudflare Family 1.1.1.3, CleanBrowsing, AdGuard Family). Queries are strictly validated for transaction ID, port, and question integrity before local TUN delivery.
+  * **Update Checks:** If the user checks for updates, the app queries the public GitHub Releases API (api.github.com/repos/zevbuild/zevblock/releases/latest). No personal identifiers or analytics are sent.
+* **Technical Limitations of Filtering:**
+  * **Encrypted DNS (DoH/DoT):** If an application uses an embedded DNS-over-HTTPS implementation that bypasses the operating system's standard port 53 resolver, network-level sinkholing cannot intercept it; ZevBlock relies on its on-screen Accessibility inspection and Settings Guard as defense-in-depth.
+  * **Cached DNS & Direct IPs:** Previously cached DNS entries or direct IP connections (without domain lookup) bypass DNS sinkholes.
+* **Android Security Model & Administrator Permissions:**
+  * **Device Owner vs. Device Administrator:** Full anti-tamper controls (blocking uninstallation, disabling safe boot, and locking Private DNS) require Android **Device Owner** provisioning (enrolled via ADB or QR provisioning on a clean device). Standard Device Administrator provides basic uninstall deterrence but cannot override hardware Safe Boot or ADB device removal.
 * **Zero Invasive Permissions:** ZevBlock does **not** request contacts, SMS, call logs, location, camera, or microphone permissions.
 * **Open-Source & Auditable:** Transparent Kotlin codebase with zero proprietary binary blobs or tracking SDKs.
 

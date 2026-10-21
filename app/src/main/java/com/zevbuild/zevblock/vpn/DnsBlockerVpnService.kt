@@ -368,7 +368,7 @@ open class DnsBlockerVpnService : VpnService() {
                 allowedQueriesCount.value = allowedCount
                 scope.launch(Dispatchers.IO) {
                     upstreamSemaphore.withPermit {
-                        forwardUpstreamDns(ipPacket, dnsQuery.rawQueryBytes, fos)
+                        forwardUpstreamDns(ipPacket, dnsQuery, fos)
                     }
                 }
                 logDnsEvent(
@@ -395,7 +395,7 @@ open class DnsBlockerVpnService : VpnService() {
      * (Cloudflare Family 1.1.1.3 / CleanBrowsing / AdGuard Family)
      * using a protected UDP socket that bypasses the local VPN TUN interface.
      */
-    private fun forwardUpstreamDns(incomingIpPacket: IpUdpPacket, rawDnsQuery: ByteArray, fos: FileOutputStream) {
+    private fun forwardUpstreamDns(incomingIpPacket: IpUdpPacket, dnsQuery: ParsedDnsQuery, fos: FileOutputStream) {
         var socket: DatagramSocket? = null
         try {
             socket = DatagramSocket()
@@ -430,31 +430,33 @@ open class DnsBlockerVpnService : VpnService() {
                 try {
                     val startMs = SystemClock.elapsedRealtime()
                     val upstreamAddr = InetAddress.getByName(serverIp)
-                    val sendPacket = DatagramPacket(rawDnsQuery, rawDnsQuery.size, upstreamAddr, 53)
+                    val sendPacket = DatagramPacket(dnsQuery.rawQueryBytes, dnsQuery.rawQueryBytes.size, upstreamAddr, 53)
                     socket.send(sendPacket)
 
                     val recvBuffer = ByteArray(4096)
                     val recvPacket = DatagramPacket(recvBuffer, recvBuffer.size)
                     socket.receive(recvPacket)
 
-                    // DatagramSocket can receive replies from any sender unless connected.
-                    // Require the exact resolver IP and DNS port before considering the payload.
+                    // 1. Validate response originates from exact contacted resolver address and port
                     if (recvPacket.address != upstreamAddr || recvPacket.port != 53) {
-                        Log.w(TAG, "Rejected DNS reply from unexpected source; trying next resolver.")
+                        Log.w(TAG, "Discarded spoofed DNS reply from unexpected source: ${recvPacket.address}:${recvPacket.port}")
                         continue
                     }
 
                     val payload = ByteArray(recvPacket.length)
                     System.arraycopy(recvBuffer, 0, payload, 0, recvPacket.length)
-                    if (!DnsPacketParser.isValidDnsResponse(rawDnsQuery, payload)) {
-                        Log.w(TAG, "Rejected invalid upstream DNS response from $serverIp; trying next resolver.")
+
+                    // 2. Validate Transaction ID, response flag (QR=1), opcode 0, and question match
+                    if (!DnsPacketParser.validateDnsResponse(payload, dnsQuery)) {
+                        Log.w(TAG, "Discarded malformed or mismatched DNS response from $serverIp")
                         continue
                     }
 
                     val rtt = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
                     _lastUpstreamLatencyMs.value = rtt
+
                     dnsAnswerPayload = payload
-                    break // Validated response received from expected adult-filtering resolver
+                    break // Succeeded with validated adult-filtered response
                 } catch (e: Exception) {
                     // Try next resolver in the pool
                     continue

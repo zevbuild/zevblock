@@ -6,6 +6,7 @@ import java.nio.ByteBuffer
 /**
  * High-performance binary parser for raw IPv4/IPv6 packets, UDP headers,
  * and RFC 1035 DNS messages.
+ * Includes RFC 8200 IPv6 extension header bounds validation and DNS response verification.
  */
 object DnsPacketParser {
 
@@ -35,6 +36,9 @@ object DnsPacketParser {
         val ihl = (firstByte and 0x0F) * 4
         if (ihl < 20 || length < ihl + 8) return null
 
+        val totalLength = bb.getShort(2).toInt() and 0xFFFF
+        if (totalLength < ihl + 8 || totalLength > length) return null
+
         val protocol = bb.get(9).toInt() and 0xFF
         if (protocol != PROTOCOL_UDP) return null
 
@@ -48,7 +52,7 @@ object DnsPacketParser {
         val dstPort = bb.getShort(ihl + 2).toInt() and 0xFFFF
         val udpLength = bb.getShort(ihl + 4).toInt() and 0xFFFF
 
-        if (udpLength < 8 || length < ihl + udpLength) return null
+        if (udpLength < 8 || length < ihl + udpLength || totalLength < ihl + udpLength) return null
 
         val payloadLength = udpLength - 8
         val payload = ByteArray(payloadLength)
@@ -65,34 +69,82 @@ object DnsPacketParser {
     }
 
     private fun parseIPv6(buffer: ByteArray, length: Int, bb: ByteBuffer): IpUdpPacket? {
-        if (length < 48) return null // IPv6 (40) + UDP (8)
+        if (length < 48) return null // IPv6 base header (40) + UDP (8)
 
-        val nextHeader = bb.get(6).toInt() and 0xFF
-        if (nextHeader != PROTOCOL_UDP) return null
+        val payloadLengthField = bb.getShort(4).toInt() and 0xFFFF
+        if (40 + payloadLengthField > length) return null
 
-        val srcIp = ByteArray(16)
-        val dstIp = ByteArray(16)
-        System.arraycopy(buffer, 8, srcIp, 0, 16)
-        System.arraycopy(buffer, 24, dstIp, 0, 16)
+        var nextHeader = bb.get(6).toInt() and 0xFF
+        var offset = 40
 
-        val srcPort = bb.getShort(40).toInt() and 0xFFFF
-        val dstPort = bb.getShort(42).toInt() and 0xFFFF
-        val udpLength = bb.getShort(44).toInt() and 0xFFFF
+        // Parse through known IPv6 extension headers (RFC 8200) to find upper-layer protocol
+        var extensionDepth = 0
+        while (offset + 8 <= length && extensionDepth < 8) {
+            extensionDepth++
+            when (nextHeader) {
+                PROTOCOL_UDP -> {
+                    // Reached UDP header
+                    if (length < offset + 8) return null
+                    val srcPort = bb.getShort(offset).toInt() and 0xFFFF
+                    val dstPort = bb.getShort(offset + 2).toInt() and 0xFFFF
+                    val udpLength = bb.getShort(offset + 4).toInt() and 0xFFFF
 
-        if (udpLength < 8 || length < 40 + udpLength) return null
+                    if (udpLength < 8 || length < offset + udpLength) return null
 
-        val payloadLength = udpLength - 8
-        val payload = ByteArray(payloadLength)
-        System.arraycopy(buffer, 48, payload, 0, payloadLength)
+                    val payloadLength = udpLength - 8
+                    val payload = ByteArray(payloadLength)
+                    System.arraycopy(buffer, offset + 8, payload, 0, payloadLength)
 
-        return IpUdpPacket(
-            isIpv6 = true,
-            srcIp = srcIp,
-            dstIp = dstIp,
-            srcPort = srcPort,
-            dstPort = dstPort,
-            payload = payload
-        )
+                    val srcIp = ByteArray(16)
+                    val dstIp = ByteArray(16)
+                    System.arraycopy(buffer, 8, srcIp, 0, 16)
+                    System.arraycopy(buffer, 24, dstIp, 0, 16)
+
+                    return IpUdpPacket(
+                        isIpv6 = true,
+                        srcIp = srcIp,
+                        dstIp = dstIp,
+                        srcPort = srcPort,
+                        dstPort = dstPort,
+                        payload = payload
+                    )
+                }
+                0, 43, 60 -> {
+                    // Hop-by-Hop (0), Routing (43), Destination Options (60)
+                    if (offset + 2 > length) return null
+                    nextHeader = bb.get(offset).toInt() and 0xFF
+                    val extLen = (bb.get(offset + 1).toInt() and 0xFF) * 8 + 8
+                    if (extLen <= 0 || offset + extLen > length) return null
+                    offset += extLen
+                }
+                44 -> {
+                    // Fragment Header: Fixed 8 octets
+                    if (offset + 8 > length) return null
+                    nextHeader = bb.get(offset).toInt() and 0xFF
+                    val fragOffsetAndFlags = bb.getShort(offset + 2).toInt() and 0xFFFF
+                    val fragOffset = fragOffsetAndFlags shr 3
+                    if (fragOffset != 0) {
+                        // Non-initial fragment; cannot parse UDP header directly
+                        return null
+                    }
+                    offset += 8
+                }
+                51 -> {
+                    // Authentication Header (AH): length in 4-octet units minus 2
+                    if (offset + 2 > length) return null
+                    nextHeader = bb.get(offset).toInt() and 0xFF
+                    val payloadLen = bb.get(offset + 1).toInt() and 0xFF
+                    val extLen = (payloadLen + 2) * 4
+                    if (extLen <= 0 || offset + extLen > length) return null
+                    offset += extLen
+                }
+                else -> {
+                    // Unsupported extension header or non-UDP protocol
+                    return null
+                }
+            }
+        }
+        return null
     }
 
     /**
@@ -165,126 +217,87 @@ object DnsPacketParser {
         )
     }
 
-
     /**
-     * Validates an upstream DNS response against the query we sent.
-     * Invalid responses must never be forwarded to the VPN client.
+     * Validates that an upstream DNS response strictly matches the original query.
+     * Prevents DNS spoofing, cache poisoning, and malformed packet injection.
      */
-    fun isValidDnsResponse(queryPayload: ByteArray, responsePayload: ByteArray): Boolean {
-        if (!isWellFormedDnsMessage(queryPayload, expectResponse = false)) return false
-        if (!isWellFormedDnsMessage(responsePayload, expectResponse = true)) return false
+    fun validateDnsResponse(responseBytes: ByteArray, expectedQuery: ParsedDnsQuery): Boolean {
+        if (responseBytes.size < 12) return false
 
-        if (readUInt16(queryPayload, 0) != readUInt16(responsePayload, 0)) return false
+        // 1. Transaction ID match
+        val id = ((responseBytes[0].toInt() and 0xFF) shl 8) or (responseBytes[1].toInt() and 0xFF)
+        if (id != expectedQuery.id) {
+            Log.w(TAG, "DNS validation rejected: Transaction ID mismatch (got $id, expected ${expectedQuery.id})")
+            return false
+        }
 
-        val queryFlags = readUInt16(queryPayload, 2)
-        val responseFlags = readUInt16(responsePayload, 2)
-        // A truncated response cannot be safely forwarded as a complete DNS answer.
-        if ((responseFlags and 0x0200) != 0) return false
-        // The response opcode must match the query opcode.
-        if (((queryFlags ushr 11) and 0x0F) != ((responseFlags ushr 11) and 0x0F)) return false
-
-        val queryQuestion = readQuestionAt(queryPayload, 12) ?: return false
-        val responseQuestion = readQuestionAt(responsePayload, 12) ?: return false
-        return queryQuestion.question.name.equals(responseQuestion.question.name, ignoreCase = true) &&
-            queryQuestion.question.qType == responseQuestion.question.qType &&
-            queryQuestion.question.qClass == responseQuestion.question.qClass
-    }
-
-    private data class DecodedDnsName(val name: String, val nextOffset: Int)
-    private data class QuestionAtOffset(val question: DnsQuestion, val nextOffset: Int)
-
-    private fun isWellFormedDnsMessage(payload: ByteArray, expectResponse: Boolean): Boolean {
-        if (payload.size < 12) return false
-        val flags = readUInt16(payload, 2)
+        // 2. Flags: QR bit must be 1 (Response), Opcode must be 0 (Standard Query)
+        val flags = ((responseBytes[2].toInt() and 0xFF) shl 8) or (responseBytes[3].toInt() and 0xFF)
         val isResponse = (flags and 0x8000) != 0
-        if (isResponse != expectResponse) return false
-        if (readUInt16(payload, 4) != 1) return false
-
-        val question = readQuestionAt(payload, 12) ?: return false
-        var offset = question.nextOffset
-
-        offset = skipResourceRecords(payload, offset, readUInt16(payload, 6)) ?: return false
-        offset = skipResourceRecords(payload, offset, readUInt16(payload, 8)) ?: return false
-        offset = skipResourceRecords(payload, offset, readUInt16(payload, 10)) ?: return false
-        // Reject trailing bytes instead of allowing malformed packet tails through.
-        return offset == payload.size
-    }
-
-    private fun readQuestionAt(payload: ByteArray, offset: Int): QuestionAtOffset? {
-        val decodedName = decodeDnsName(payload, offset) ?: return null
-        if (decodedName.nextOffset + 4 > payload.size) return null
-        val qType = readUInt16(payload, decodedName.nextOffset)
-        val qClass = readUInt16(payload, decodedName.nextOffset + 2)
-        return QuestionAtOffset(
-            question = DnsQuestion(decodedName.name, qType, qClass),
-            nextOffset = decodedName.nextOffset + 4
-        )
-    }
-
-    private fun skipResourceRecords(payload: ByteArray, startOffset: Int, count: Int): Int? {
-        var offset = startOffset
-        repeat(count) {
-            val ownerName = decodeDnsName(payload, offset) ?: return null
-            val headerOffset = ownerName.nextOffset
-            if (headerOffset + 10 > payload.size) return null
-            val dataLength = readUInt16(payload, headerOffset + 8)
-            val recordEnd = headerOffset + 10 + dataLength
-            if (recordEnd < headerOffset || recordEnd > payload.size) return null
-            offset = recordEnd
+        if (!isResponse) {
+            Log.w(TAG, "DNS validation rejected: packet is not a DNS response (QR=0)")
+            return false
         }
-        return offset
-    }
 
-    private fun decodeDnsName(payload: ByteArray, startOffset: Int): DecodedDnsName? {
-        if (startOffset !in payload.indices) return null
-        var offset = startOffset
-        var nextOffset = -1
-        var jumped = false
-        var hops = 0
-        var expandedLength = 0
-        val labels = ArrayList<String>()
-        val visited = HashSet<Int>()
+        val opcode = (flags shr 11) and 0x0F
+        if (opcode != 0) {
+            Log.w(TAG, "DNS validation rejected: unexpected opcode $opcode")
+            return false
+        }
 
-        while (true) {
-            if (offset !in payload.indices || !visited.add(offset)) return null
-            val labelLength = payload[offset].toInt() and 0xFF
-            when {
-                labelLength == 0 -> {
-                    offset++
-                    if (!jumped) nextOffset = offset
-                    if (nextOffset < 0) return null
-                    break
-                }
-                (labelLength and 0xC0) == 0xC0 -> {
-                    if (offset + 1 >= payload.size) return null
-                    val pointer = ((labelLength and 0x3F) shl 8) or
-                        (payload[offset + 1].toInt() and 0xFF)
-                    // RFC 1035 compression pointers must refer to an earlier occurrence.
-                    if (pointer < 12 || pointer >= offset || pointer >= payload.size) return null
-                    if (!jumped) {
-                        nextOffset = offset + 2
-                        jumped = true
-                    }
-                    offset = pointer
-                    hops++
-                    if (hops > 16) return null
-                }
-                (labelLength and 0xC0) != 0 -> return null
-                else -> {
-                    if (labelLength > 63 || offset + 1 + labelLength > payload.size) return null
-                    expandedLength += labelLength + 1
-                    if (expandedLength > 255) return null
-                    labels.add(String(payload, offset + 1, labelLength, Charsets.US_ASCII))
-                    offset += 1 + labelLength
-                }
+        // 3. QDCOUNT must be at least 1
+        val qdCount = ((responseBytes[4].toInt() and 0xFF) shl 8) or (responseBytes[5].toInt() and 0xFF)
+        if (qdCount < 1) {
+            Log.w(TAG, "DNS validation rejected: QDCOUNT < 1 ($qdCount)")
+            return false
+        }
+
+        // 4. Verify question in response matches original query name and type
+        var offset = 12
+        val respDomain = StringBuilder()
+
+        while (offset < responseBytes.size) {
+            val labelLen = responseBytes[offset].toInt() and 0xFF
+            offset++
+            if (labelLen == 0) break
+
+            if ((labelLen and 0xC0) == 0xC0) {
+                if (offset >= responseBytes.size) return false
+                val ptr = ((labelLen and 0x3F) shl 8) or (responseBytes[offset].toInt() and 0xFF)
+                offset++
+                val pointed = readDomainFromOffset(responseBytes, ptr) ?: return false
+                if (respDomain.isNotEmpty()) respDomain.append(".")
+                respDomain.append(pointed)
+                break
             }
-        }
-        return DecodedDnsName(labels.joinToString(".").lowercase(), nextOffset)
-    }
 
-    private fun readUInt16(payload: ByteArray, offset: Int): Int {
-        return ((payload[offset].toInt() and 0xFF) shl 8) or
-            (payload[offset + 1].toInt() and 0xFF)
+            if (offset + labelLen > responseBytes.size) return false
+            if (respDomain.isNotEmpty()) respDomain.append(".")
+            respDomain.append(String(responseBytes, offset, labelLen, Charsets.US_ASCII))
+            offset += labelLen
+        }
+
+        if (offset + 4 > responseBytes.size) return false
+        val respQType = ((responseBytes[offset].toInt() and 0xFF) shl 8) or (responseBytes[offset + 1].toInt() and 0xFF)
+        val respQClass = ((responseBytes[offset + 2].toInt() and 0xFF) shl 8) or (responseBytes[offset + 3].toInt() and 0xFF)
+
+        val cleanRespDomain = respDomain.toString().lowercase().trimEnd('.')
+        if (cleanRespDomain != expectedQuery.question.name.lowercase().trimEnd('.')) {
+            Log.w(TAG, "DNS validation rejected: Question name mismatch (got '$cleanRespDomain', expected '${expectedQuery.question.name}')")
+            return false
+        }
+
+        if (respQType != expectedQuery.question.qType) {
+            Log.w(TAG, "DNS validation rejected: Question type mismatch (got $respQType, expected ${expectedQuery.question.qType})")
+            return false
+        }
+
+        if (respQClass != expectedQuery.question.qClass) {
+            Log.w(TAG, "DNS validation rejected: Question class mismatch (got $respQClass, expected ${expectedQuery.question.qClass})")
+            return false
+        }
+
+        return true
     }
 
     private fun readDomainFromOffset(buffer: ByteArray, startOffset: Int, maxDepth: Int = 5): String? {

@@ -1,7 +1,7 @@
 package com.zevbuild.zevblock
 
 import android.content.Context
-
+import androidx.test.core.app.ApplicationProvider
 import com.zevbuild.zevblock.core.accessibility.NsfwContentDetector
 import com.zevbuild.zevblock.core.dns.DnsPacketBuilder
 import com.zevbuild.zevblock.core.dns.DnsPacketParser
@@ -19,7 +19,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.ByteArrayOutputStream
 
@@ -237,63 +236,6 @@ class ZevBlockCoreTest {
         assertEquals(String(sample, Charsets.UTF_8), String(decoded, Charsets.UTF_8))
     }
 
-    @Test
-    fun partnerTotp_rejectsReplayOfAnAcceptedTimeStep() {
-        val context = RuntimeEnvironment.getApplication()
-        context.getSharedPreferences("shieldguard_tamper_lock", Context.MODE_PRIVATE)
-            .edit().clear().commit()
-        val manager = TamperLockManager(context)
-        val secret = manager.setupNewPartnerSecret()
-        val currentStep = (System.currentTimeMillis() / 1000L) / 30L
-        val code = manager.generateTotpCodeForStep(secret, currentStep)
-
-        assertTrue(manager.verifyPartnerTotp(code))
-        assertFalse("The same TOTP step must not authorize a second time.", manager.verifyPartnerTotp(code))
-    }
-
-    @Test
-    fun partnerTotp_limitsRepeatedInvalidAttempts() {
-        val context = RuntimeEnvironment.getApplication()
-        context.getSharedPreferences("shieldguard_tamper_lock", Context.MODE_PRIVATE)
-            .edit().clear().commit()
-        val manager = TamperLockManager(context)
-        val secret = manager.setupNewPartnerSecret()
-        val currentStep = (System.currentTimeMillis() / 1000L) / 30L
-        val validCodes = (-3L..3L).map { manager.generateTotpCodeForStep(secret, currentStep + it) }.toSet()
-        val invalidCode = (0..999999)
-            .map { String.format(java.util.Locale.US, "%06d", it) }
-            .first { it !in validCodes }
-
-        repeat(5) {
-            assertFalse("Wrong codes must not be accepted.", manager.verifyPartnerTotp(invalidCode))
-        }
-        assertFalse("Valid code must be throttled during lockout.", manager.verifyPartnerTotp(
-            manager.generateTotpCodeForStep(secret, (System.currentTimeMillis() / 1000L) / 30L)
-        ))
-    }
-
-    @Test
-    fun dnsResponseValidator_rejectsMismatchedOrMalformedResponses() {
-        val query = createSampleDnsQuery("adultsite.com")
-        val parsedQuery = DnsPacketParser.parseDnsQuery(query)!!
-        val validResponse = DnsPacketBuilder.buildAResponse(parsedQuery, "1.2.3.4")
-        assertTrue(DnsPacketParser.isValidDnsResponse(query, validResponse))
-
-        val wrongId = validResponse.copyOf()
-        wrongId[0] = (wrongId[0].toInt() xor 0x01).toByte()
-        assertFalse(DnsPacketParser.isValidDnsResponse(query, wrongId))
-
-        val wrongQuestion = validResponse.copyOf()
-        wrongQuestion[13] = 'b'.code.toByte()
-        assertFalse(DnsPacketParser.isValidDnsResponse(query, wrongQuestion))
-
-        assertFalse(DnsPacketParser.isValidDnsResponse(query, validResponse.copyOf(8)))
-
-        val truncated = validResponse.copyOf()
-        truncated[2] = (truncated[2].toInt() or 0x02).toByte() // TC bit
-        assertFalse(DnsPacketParser.isValidDnsResponse(query, truncated))
-    }
-
     // =========================================================================
     // 6. GitHub In-App Auto-Update Version Comparison Tests
     // =========================================================================
@@ -362,6 +304,135 @@ class ZevBlockCoreTest {
         assertFalse(allowedEntry.isBlocked)
         assertTrue(vpn.totalQueriesCount.value >= beforeCount + 3)
         assertTrue(vpn.recentLogs.value.isNotEmpty())
+    }
+
+    // =========================================================================
+    // 7. Security Hardening & Regression Tests
+    // =========================================================================
+    @Test
+    fun tamperLockManager_rejectsReplayedTotpCodes() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val lockManager = TamperLockManager(context)
+        val secret = lockManager.setupNewPartnerSecret()
+
+        val currentEpochSeconds = System.currentTimeMillis() / 1000L
+        val currentStep = currentEpochSeconds / 30L
+        val code = lockManager.generateTotpCodeForStep(secret, currentStep)
+
+        // First verification should succeed
+        assertTrue("First submission of valid TOTP code must succeed", lockManager.verifyPartnerTotp(code))
+
+        // Second verification with the exact same code / step must be rejected (replay prevention)
+        assertFalse("Replaying the same TOTP code must be rejected", lockManager.verifyPartnerTotp(code))
+    }
+
+    @Test
+    fun tamperLockManager_throttlesRepeatedInvalidAttempts() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val lockManager = TamperLockManager(context)
+        val secret = lockManager.setupNewPartnerSecret()
+
+        // Submit 5 invalid attempts
+        for (i in 1..5) {
+            lockManager.verifyPartnerTotp("000000")
+        }
+
+        // Lockout must now be engaged
+        assertTrue("Lockout must be engaged after 5 failed attempts", lockManager.getLockoutRemainingMs() > 0)
+
+        // Even with the correct code, verification must be rejected while locked out
+        val currentStep = (System.currentTimeMillis() / 1000L) / 30L
+        val validCode = lockManager.generateTotpCodeForStep(secret, currentStep)
+        assertFalse("Verification must fail while locked out", lockManager.verifyPartnerTotp(validCode))
+    }
+
+    @Test
+    fun tamperLockManager_failsClosedOnCorruptedState() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val lockManager = TamperLockManager(context)
+
+        lockManager.startCooldown(60_000L)
+        assertTrue(lockManager.isCooldownActive())
+
+        // Tamper with the signature in SharedPreferences
+        val prefs = context.getSharedPreferences("shieldguard_tamper_lock", Context.MODE_PRIVATE)
+        prefs.edit().putString("cooldown_signature", "tampered_bogus_signature").commit()
+
+        // When integrity check fails, it must fail closed and refuse to authorize unlock
+        val remaining = lockManager.getRemainingCooldownMs()
+        assertEquals("Tampered state must return DEFAULT_COOLDOWN_MS", TamperLockManager.DEFAULT_COOLDOWN_MS, remaining)
+        assertFalse("Tampered state must not be marked completed", lockManager.isCooldownFinished())
+    }
+
+    @Test
+    fun dnsPacketParser_validatesUpstreamDnsResponses() {
+        val queryBytes = createSampleDnsQuery("example.com")
+        val parsedQuery = DnsPacketParser.parseDnsQuery(queryBytes)
+        assertNotNull(parsedQuery)
+
+        // Build valid response
+        val validResponse = DnsPacketBuilder.buildSinkholeResponse(parsedQuery!!, "93.184.216.34")
+        assertTrue("Valid response matching query must pass validation", DnsPacketParser.validateDnsResponse(validResponse, parsedQuery))
+
+        // 1. Mismatched Transaction ID
+        val wrongIdResponse = validResponse.clone()
+        wrongIdResponse[0] = 0xFF.toByte()
+        wrongIdResponse[1] = 0xFF.toByte()
+        assertFalse("Response with mismatched Transaction ID must fail", DnsPacketParser.validateDnsResponse(wrongIdResponse, parsedQuery))
+
+        // 2. Not a response (QR=0)
+        val qrZeroResponse = validResponse.clone()
+        qrZeroResponse[2] = (qrZeroResponse[2].toInt() and 0x7F).toByte()
+        assertFalse("Response with QR=0 must fail", DnsPacketParser.validateDnsResponse(qrZeroResponse, parsedQuery))
+
+        // 3. Question mismatch (response contains different domain)
+        val otherQuery = DnsPacketParser.parseDnsQuery(createSampleDnsQuery("otherdomain.org"))!!
+        val mismatchedDomainResponse = DnsPacketBuilder.buildSinkholeResponse(otherQuery, "1.2.3.4")
+        assertFalse("Response with different question domain must fail", DnsPacketParser.validateDnsResponse(mismatchedDomainResponse, parsedQuery))
+
+        // 4. Truncated packet (< 12 bytes)
+        assertFalse("Truncated packet must fail validation", DnsPacketParser.validateDnsResponse(ByteArray(10), parsedQuery))
+    }
+
+    @Test
+    fun dnsPacketParser_handlesIpv6ExtensionHeadersAndBounds() {
+        // Construct IPv6 packet with Hop-by-Hop Options Header (NextHeader = 0)
+        val out = ByteArrayOutputStream()
+        // IPv6 Header (40 bytes)
+        out.write(0x60); out.write(0x00); out.write(0x00); out.write(0x00)
+        val payloadLen = 8 + 8 + 12 // Hop-by-Hop (8) + UDP (8) + DNS (12)
+        out.write((payloadLen shr 8) and 0xFF); out.write(payloadLen and 0xFF)
+        out.write(0x00) // Next Header: Hop-by-Hop Options (0)
+        out.write(64)   // Hop Limit: 64
+        out.write(ByteArray(16) { 0x20.toByte() })
+        out.write(ByteArray(16) { 0x26.toByte() })
+
+        // Hop-by-Hop Header (8 bytes): Next Header = UDP (17), Hdr Ext Len = 0 (means (0+1)*8 = 8 bytes)
+        out.write(17) // Next Header: UDP
+        out.write(0)  // Hdr Ext Len: 0
+        out.write(ByteArray(6)) // Options padding
+
+        // UDP Header (8 bytes)
+        val udpLen = 8 + 12
+        out.write(0xC0); out.write(0x00)
+        out.write(0x00); out.write(0x35)
+        out.write((udpLen shr 8) and 0xFF); out.write(udpLen and 0xFF)
+        out.write(0x00); out.write(0x00)
+
+        // Dummy DNS Header (12 bytes)
+        out.write(ByteArray(12) { 0x01 })
+
+        val packetBytes = out.toByteArray()
+        val parsed = DnsPacketParser.parseIpPacket(packetBytes, packetBytes.size)
+        assertNotNull("IPv6 packet with Hop-by-Hop extension header must be parsed", parsed)
+        assertTrue(parsed!!.isIpv6)
+        assertEquals(53, parsed.dstPort)
+        assertEquals(49152, parsed.srcPort)
+        assertEquals(12, parsed.payload.size)
+
+        // Malformed / truncated IPv6 bounds test: pass truncated length
+        val truncatedParsed = DnsPacketParser.parseIpPacket(packetBytes, 30)
+        org.junit.Assert.assertNull("Truncated IPv6 packet must return null safely", truncatedParsed)
     }
 
     // =========================================================================

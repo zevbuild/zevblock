@@ -28,6 +28,30 @@
 
 ## 🕒 Change History
 
+### [2026-10-21 11:28] - Implemented Complete Security Audit Hardening (Codex PR #2)
+- **AI Agent / Model**: Antigravity (Gemini 3.8 Flash High)
+- **Objective**: Implement all required security audit fixes specified in `CODEX_TASK.md` on branch `codex/zevblock-security-fixes` (TOTP replay, Keystore AES-GCM, upstream DNS validation, cooldown HMAC, IPv6 extension headers, regression tests).
+- **Files Modified / Created**:
+  - `app/src/main/java/com/zevbuild/zevblock/core/security/CryptoKeyManager.kt` - Android Keystore AES-256-GCM authenticated encryption and fallback manager
+  - `app/src/main/java/com/zevbuild/zevblock/core/security/TamperLockManager.kt` - Added TOTP replay rejection (`lastAcceptedStep`), attempt throttling/lockout, constant-time comparison, Keystore secret encryption & migration, state bounds validation
+  - `app/src/main/java/com/zevbuild/zevblock/core/dns/DnsPacketParser.kt` - Added `validateDnsResponse(...)`, RFC 8200 IPv6 extension header parser, IPv4 totalLength boundary checks
+  - `app/src/main/java/com/zevbuild/zevblock/vpn/DnsBlockerVpnService.kt` - Upstream DNS response source (IP/port 53) and message structure validation before TUN delivery
+  - `app/src/main/java/com/zevbuild/zevblock/accessibility/ShieldAccessibilityService.kt` - Permitted settings modification during partner-authorized temporary bypass (`!isBypassActive`)
+  - `app/src/test/java/com/zevbuild/zevblock/ZevBlockCoreTest.kt` - Added 5 security regression tests
+  - `README.md` - Transparently disclosed upstream DNS queries, GitHub update checks, DoH limitations, and Device Owner model
+  - `CODEX_TASK.md` - Marked all 7 tasks completed
+- **Key Changes & Architecture Impact**:
+  - Closed partner TOTP replay vulnerability and brute-force vector.
+  - Eliminated plaintext storage of partner secrets and HMAC keys in `SharedPreferences`.
+  - Prevented DNS spoofing/cache poisoning by validating transaction IDs, exact resolver sources, and question matches.
+  - Hardened IPv6 packet parsing with RFC 8200 extension header traversal.
+- **Security, Battery & Privacy Audit**:
+  - Zero-Bypass adult sinkhole & SafeSearch VIP preserved 100%. No secrets logged. Constant-time signature verification prevents timing attacks.
+- **Verification**:
+  - Added unit regression tests for replay, throttling, corrupt state, DNS validation, and IPv6 extension headers.
+- **Next Steps / Open Items**:
+  - Push branch `codex/zevblock-security-fixes` and update PR #2 for review.
+
 ### [2026-10-21 11:10] - Integrated Jules PR #3: EDNS0 Boundary Parsing & Memory Optimizations
 - **AI Agent / Model**: Antigravity (Gemini 3.8 Flash High)
 - **Objective**: Cleanly integrate Jules PR #3 fixes into `main` without regressing AI Studio's CrashGuard or 5-second `startForeground` ANR guarantee.

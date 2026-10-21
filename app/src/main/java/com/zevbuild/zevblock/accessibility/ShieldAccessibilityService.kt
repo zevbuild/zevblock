@@ -216,7 +216,7 @@ class ShieldAccessibilityService : AccessibilityService() {
             // =================================================================
             // 2. SETTINGS GUARD: Prevent App Info, VPN, Admin, or Accessibility tampering
             // =================================================================
-            if (isSettingsGuardEnabled && SettingsTamperGuard.SETTINGS_PACKAGES.contains(packageName)) {
+            if (isSettingsGuardEnabled && !isBypassActive && SettingsTamperGuard.SETTINGS_PACKAGES.contains(packageName)) {
                 val tamperEvent = settingsTamperGuard.inspect(packageName, null, rootNode)
                 if (tamperEvent != null) {
                     Log.w(TAG, "Settings tamper detected: ${tamperEvent.target} - ${tamperEvent.reason}")
