@@ -19,10 +19,10 @@ import kotlin.math.min
  *    by winding back or forwarding the Android system date & time.
  * 3. Cryptographic integrity sealing of stored lock state.
  */
-class TamperLockManager(private val context: Context) {
+class TamperLockManager(context: Context) {
 
     private val prefs: SharedPreferences =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     // =========================================================================
     // SECTION 1: RFC 6238 TOTP ENGINE (Accountability Partner)
@@ -110,7 +110,7 @@ class TamperLockManager(private val context: Context) {
                 (hash[offset + 3].toInt() and 0xFF)
 
         val otp = binary % 1_000_000
-        return String.format("%06d", otp)
+        return String.format(java.util.Locale.US, "%06d", otp)
     }
 
     private fun savePartnerSecret(secret: String) {

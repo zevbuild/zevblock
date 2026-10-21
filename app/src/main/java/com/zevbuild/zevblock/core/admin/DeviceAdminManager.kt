@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.admin
+package com.zevbuild.zevblock.core.admin
 
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
@@ -188,6 +188,9 @@ class DeviceAdminManager(private val context: Context) {
             Log.w(TAG, "Cannot configure Private DNS restriction: Requires Device Owner.")
             return false
         }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return false
+        }
         return try {
             if (blocked) {
                 dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_CONFIG_PRIVATE_DNS)
@@ -206,6 +209,9 @@ class DeviceAdminManager(private val context: Context) {
      * Checks if Private DNS modification is currently disallowed.
      */
     fun isPrivateDnsTamperBlocked(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return false
+        }
         return try {
             userManager.hasUserRestriction(UserManager.DISALLOW_CONFIG_PRIVATE_DNS)
         } catch (e: Exception) {
@@ -237,7 +243,9 @@ class DeviceAdminManager(private val context: Context) {
 
             // 3. System restrictions
             dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
-            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_CONFIG_PRIVATE_DNS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_CONFIG_PRIVATE_DNS)
+            }
             dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_CONFIG_VPN)
             dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER)
             dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_FACTORY_RESET)
@@ -260,7 +268,9 @@ class DeviceAdminManager(private val context: Context) {
             dpm.setUninstallBlocked(adminComponent, context.packageName, false)
             dpm.setAlwaysOnVpnPackage(adminComponent, null, false)
             dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT)
-            dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_CONFIG_PRIVATE_DNS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_CONFIG_PRIVATE_DNS)
+            }
             dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_CONFIG_VPN)
             dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER)
             dpm.clearUserRestriction(adminComponent, UserManager.DISALLOW_FACTORY_RESET)

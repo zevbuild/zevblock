@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.updater
+package com.zevbuild.zevblock.core.updater
 
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
@@ -234,11 +234,12 @@ object AppUpdateManager {
             }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            appContext.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            appContext.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
-        }
+        androidx.core.content.ContextCompat.registerReceiver(
+            appContext,
+            receiver,
+            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+            androidx.core.content.ContextCompat.RECEIVER_EXPORTED
+        )
     }
 
     /**

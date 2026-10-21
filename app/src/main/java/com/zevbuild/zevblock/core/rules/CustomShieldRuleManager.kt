@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.rules
+package com.zevbuild.zevblock.core.rules
 
 import android.content.Context
 import android.os.SystemClock
@@ -24,13 +24,13 @@ import org.json.JSONObject
  *    - A 24-hour hardware-clock cooldown delay to prevent impulsive relapse.
  */
 class CustomShieldRuleManager(
-    private val context: Context,
+    context: Context,
     private val tamperLockManager: TamperLockManager,
     private val blocklistMatcher: DomainBlocklistMatcher,
     private val nsfwContentDetector: NsfwContentDetector
 ) {
 
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _customDomains = MutableStateFlow<Set<String>>(emptySet())
     val customDomains: StateFlow<Set<String>> = _customDomains.asStateFlow()

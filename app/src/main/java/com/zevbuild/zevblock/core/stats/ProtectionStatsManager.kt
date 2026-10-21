@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.stats
+package com.zevbuild.zevblock.core.stats
 
 import android.content.Context
 import android.os.SystemClock
@@ -25,11 +25,11 @@ import java.util.concurrent.TimeUnit
  * 3. Streak Integrity: Calculates unbroken days of protection and clean accountability.
  */
 class ProtectionStatsManager(
-    private val context: Context,
+    context: Context,
     private val tamperLockManager: TamperLockManager
 ) {
 
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     private val dayNameFormat = SimpleDateFormat("EEE", Locale.US)
 

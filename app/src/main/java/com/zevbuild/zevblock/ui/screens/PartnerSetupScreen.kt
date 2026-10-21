@@ -726,7 +726,7 @@ private fun formatMs(ms: Long): String {
     val sec = ms / 1000
     val min = sec / 60
     val s = sec % 60
-    return String.format("%02d:%02d", min, s)
+    return String.format(java.util.Locale.US, "%02d:%02d", min, s)
 }
 
 private fun copyToClipboard(context: Context, text: String, msg: String) {
