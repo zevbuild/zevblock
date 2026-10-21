@@ -94,9 +94,10 @@ object DnsPacketBuilder {
         out.write(0x00); out.write(0x00) // NSCOUNT = 0
         out.write(0x00); out.write(0x00) // ARCOUNT = 0
 
-        // 4. Question Section (copy directly from raw query payload after 12-byte header)
-        if (query.rawQueryBytes.size > 12) {
-            out.write(query.rawQueryBytes, 12, query.rawQueryBytes.size - 12)
+        // 4. Question Section (copy directly from raw query payload after 12-byte header up to questionEndOffset)
+        val questionLen = (query.questionEndOffset - 12).coerceAtLeast(0)
+        if (questionLen > 0 && query.rawQueryBytes.size >= query.questionEndOffset) {
+            out.write(query.rawQueryBytes, 12, questionLen)
         }
 
         return out.toByteArray()
@@ -131,8 +132,10 @@ object DnsPacketBuilder {
         out.write(0x00); out.write(0x00) // ARCOUNT = 0
 
         // 4. Question Section (copy from original query)
-        val questionBytesLength = query.rawQueryBytes.size - 12
-        out.write(query.rawQueryBytes, 12, questionBytesLength)
+        val questionBytesLength = (query.questionEndOffset - 12).coerceAtLeast(0)
+        if (questionBytesLength > 0 && query.rawQueryBytes.size >= query.questionEndOffset) {
+            out.write(query.rawQueryBytes, 12, questionBytesLength)
+        }
 
         // 5. Answer Section
         // Name: Pointer 0xC00C pointing to the question name offset in header

@@ -90,12 +90,16 @@ class BrowserUrlExtractor {
         for (viewId in URL_BAR_VIEW_IDS) {
             val matchingNodes = rootNode.findAccessibilityNodeInfosByViewId(viewId)
             if (!matchingNodes.isNullOrEmpty()) {
+                var foundText: String? = null
                 for (node in matchingNodes) {
-                    val text = node.text?.toString() ?: node.contentDescription?.toString()
-                    if (!text.isNullOrBlank()) {
-                        return text.trim()
+                    if (foundText == null) {
+                        val text = node.text?.toString() ?: node.contentDescription?.toString()
+                        if (!text.isNullOrBlank()) {
+                            foundText = text.trim()
+                        }
                     }
                 }
+                if (foundText != null) return foundText
             }
         }
 

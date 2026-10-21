@@ -150,6 +150,7 @@ object DnsPacketParser {
         val qClass = ((dnsPayload[offset + 2].toInt() and 0xFF) shl 8) or (dnsPayload[offset + 3].toInt() and 0xFF)
 
         val cleanDomain = domainLabels.toString().lowercase().trimEnd('.')
+        val questionEnd = offset + 4
 
         return ParsedDnsQuery(
             id = id,
@@ -159,12 +160,13 @@ object DnsPacketParser {
                 qType = qType,
                 qClass = qClass
             ),
-            rawQueryBytes = dnsPayload
+            rawQueryBytes = dnsPayload,
+            questionEndOffset = questionEnd
         )
     }
 
     private fun readDomainFromOffset(buffer: ByteArray, startOffset: Int, maxDepth: Int = 5): String? {
-        if (maxDepth <= 0 || startOffset >= buffer.size) return null
+        if (maxDepth <= 0 || startOffset < 0 || startOffset >= buffer.size) return null
         var offset = startOffset
         val sb = StringBuilder()
 

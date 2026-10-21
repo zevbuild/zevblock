@@ -72,11 +72,22 @@ open class DnsBlockerVpnService : VpnService() {
         return START_STICKY
     }
 
+    private fun ensureDependencies() {
+        if (statsManager == null) {
+            statsManager = com.zevbuild.zevblock.core.stats.ProtectionStatsManager(
+                applicationContext,
+                TamperLockManager(applicationContext)
+            )
+        }
+    }
+
     private fun startVpn() {
         if (_isRunning.value) {
             Log.w(TAG, "VPN is already running.")
             return
         }
+
+        ensureDependencies()
 
         val initialNotification = buildNotification(
             titleText = "ZevBlock • ↓ 0 B/s  ↑ 0 B/s",
@@ -204,7 +215,7 @@ open class DnsBlockerVpnService : VpnService() {
             _appUploadSpeedBps.value = appUlSpeed
 
             // Persist daily download/upload totals
-            val todayKey = dayFormatter.format(Date())
+            val todayKey = dayFormatter.format(System.currentTimeMillis())
             val savedDay = trafficPrefs.getString("current_day", "")
             var dayDl = if (savedDay == todayKey) trafficPrefs.getLong("day_dl_bytes", 0L) else 0L
             var dayUl = if (savedDay == todayKey) trafficPrefs.getLong("day_ul_bytes", 0L) else 0L

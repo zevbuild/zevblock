@@ -41,7 +41,8 @@ data class ParsedDnsQuery(
     val id: Int,
     val isRecursionDesired: Boolean,
     val question: DnsQuestion,
-    val rawQueryBytes: ByteArray
+    val rawQueryBytes: ByteArray,
+    val questionEndOffset: Int = rawQueryBytes.size
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

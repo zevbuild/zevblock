@@ -49,8 +49,27 @@ class ShieldAccessibilityService : AccessibilityService() {
         scanWindow(pkg)
     }
 
+    private fun ensureDependencies() {
+        val tamperLockManager = TamperLockManager(applicationContext)
+        if (statsManager == null) {
+            statsManager = com.zevbuild.zevblock.core.stats.ProtectionStatsManager(
+                applicationContext,
+                tamperLockManager
+            )
+        }
+        if (customRuleManager == null) {
+            customRuleManager = com.zevbuild.zevblock.core.rules.CustomShieldRuleManager(
+                applicationContext,
+                tamperLockManager,
+                com.zevbuild.zevblock.vpn.DnsBlockerVpnService.blocklistMatcher,
+                nsfwContentDetector
+            )
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        ensureDependencies()
         _isServiceActive.value = true
         Log.i(TAG, "ShieldAccessibilityService successfully connected and active.")
     }
@@ -62,6 +81,8 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         // Skip exempt packages at the top of onAccessibilityEvent
         if (isExemptPackage(packageName)) return
+
+        ensureDependencies()
 
         // Call nsfwContentDetector.setCustomKeywords() only when the keyword set actually changed
         customRuleManager?.let {
@@ -98,25 +119,29 @@ class ShieldAccessibilityService : AccessibilityService() {
             }
 
             val sourceNode = event.source
-            if (sourceNode != null && !sourceNode.isPassword) {
-                val sourceText = sourceNode.text?.toString()
-                if (!sourceText.isNullOrBlank()) {
-                    val nsfwResult = nsfwContentDetector.analyze(sourceText)
-                    val shouldWarn = if (isBypassActive) nsfwResult.category != "Custom Blocked Keyword" else true
-                    if (nsfwResult.isNsfw && shouldWarn) {
-                        Log.w(TAG, "Vulgar keyword in $packageName source node: '${nsfwResult.matchedTerm}'")
-                        showChatWarning(nsfwResult.matchedTerm ?: "explicit keyword", packageName)
-                        val chatCount = _chatWarnings.incrementAndGet()
-                        chatWarningsCount.value = chatCount
-                        val nsfwCount = _nsfwBlocks.incrementAndGet()
-                        nsfwBlocksCount.value = nsfwCount
-                        logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${nsfwResult.matchedTerm}")
-                        statsManager?.recordChatWarning()
-                        sourceNode.recycle()
-                        return
+            if (sourceNode != null) {
+                try {
+                    if (!sourceNode.isPassword) {
+                        val sourceText = sourceNode.text?.toString()
+                        if (!sourceText.isNullOrBlank()) {
+                            val nsfwResult = nsfwContentDetector.analyze(sourceText)
+                            val shouldWarn = if (isBypassActive) nsfwResult.category != "Custom Blocked Keyword" else true
+                            if (nsfwResult.isNsfw && shouldWarn) {
+                                Log.w(TAG, "Vulgar keyword in $packageName source node: '${nsfwResult.matchedTerm}'")
+                                showChatWarning(nsfwResult.matchedTerm ?: "explicit keyword", packageName)
+                                val chatCount = _chatWarnings.incrementAndGet()
+                                chatWarningsCount.value = chatCount
+                                val nsfwCount = _nsfwBlocks.incrementAndGet()
+                                nsfwBlocksCount.value = nsfwCount
+                                logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${nsfwResult.matchedTerm}")
+                                statsManager?.recordChatWarning()
+                                return
+                            }
+                        }
                     }
+                } finally {
+                    sourceNode.recycle()
                 }
-                sourceNode.recycle()
             }
         }
 
