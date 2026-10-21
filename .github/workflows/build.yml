@@ -79,7 +79,8 @@ jobs:
           fi
           echo "Found APK: $APK_FILE"
           TAG_NAME="${GITHUB_REF_NAME:-v2.2}"
-          cp "$APK_FILE" "dist/ZevBlock-${TAG_NAME}.apk"
+          SAFE_TAG=$(echo "$TAG_NAME" | tr '/' '-')
+          cp "$APK_FILE" "dist/ZevBlock-${SAFE_TAG}.apk"
           cp "$APK_FILE" dist/ZevBlock-v2.2.apk
           cp "$APK_FILE" dist/ZevBlock-latest.apk
           ls -la dist/
