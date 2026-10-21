@@ -32,25 +32,96 @@ class TamperLockManager(context: Context) {
      * Verifies a 6-digit candidate code against the stored friend's TOTP secret.
      * Allows a clock skew of ±1 step (±30 seconds) to tolerate time drift.
      */
-    fun verifyPartnerTotp(candidateCode: String): Boolean {
-        val secret = getPartnerSecret() ?: return false
-        val cleanCode = candidateCode.trim().filter { it.isDigit() }
-        if (cleanCode.length != 6) return false
+    fun verifyPartnerTotp(candidateCode: String): Boolean = synchronized(TOTP_VERIFICATION_LOCK) {
+        val secret = getPartnerSecret() ?: return@synchronized false
+        val nowWall = System.currentTimeMillis()
+        if (!canAttemptTotp(nowWall)) return@synchronized false
 
-        val currentEpochSeconds = System.currentTimeMillis() / 1000L
-        val currentStep = currentEpochSeconds / TOTP_TIME_STEP_SECONDS
+        // Accept ASCII digits only. Filtering characters could turn malformed input into a valid code.
+        val cleanCode = candidateCode.trim()
+        if (!cleanCode.matches(Regex("[0-9]{6}"))) {
+            recordTotpFailure(nowWall)
+            return@synchronized false
+        }
 
-        // Check current step, preceding step, and succeeding step (±30 seconds)
-        for (stepOffset in -1L..1L) {
-            val step = currentStep + stepOffset
-            val expectedCode = generateTotpCodeForStep(secret, step)
-            if (expectedCode == cleanCode) {
-                Log.i(TAG, "Partner TOTP successfully verified for step offset: $stepOffset")
-                return true
+        val currentStep = (nowWall / 1000L) / TOTP_TIME_STEP_SECONDS
+        val lastAcceptedStep = prefs.getLong(KEY_TOTP_LAST_ACCEPTED_STEP, Long.MIN_VALUE)
+
+        // Prefer the current step; the +/- 1 window accommodates small clock drift.
+        // A time step must be strictly newer than the last one accepted.
+        val matchingStep = listOf(currentStep, currentStep - 1L, currentStep + 1L)
+            .firstOrNull { step ->
+                step > lastAcceptedStep &&
+                    runCatching { generateTotpCodeForStep(secret, step) == cleanCode }.getOrDefault(false)
+            }
+
+        if (matchingStep == null) {
+            recordTotpFailure(nowWall)
+            Log.w(TAG, "Partner TOTP verification failed or code was already used.")
+            return@synchronized false
+        }
+
+        // commit() is deliberate: do not authorize unless replay state was persisted successfully.
+        val saved = prefs.edit()
+            .putLong(KEY_TOTP_LAST_ACCEPTED_STEP, matchingStep)
+            .putLong(KEY_TOTP_LAST_ATTEMPT_WALL, nowWall)
+            .putInt(KEY_TOTP_FAILURE_COUNT, 0)
+            .putLong(KEY_TOTP_FAILURE_WINDOW_START_WALL, nowWall)
+            .remove(KEY_TOTP_LOCKOUT_UNTIL_WALL)
+            .commit()
+
+        if (!saved) {
+            Log.e(TAG, "Could not persist TOTP replay state; refusing authorization.")
+            return@synchronized false
+        }
+
+        Log.i(TAG, "Partner TOTP successfully verified.")
+        true
+    }
+
+    private fun canAttemptTotp(nowWall: Long): Boolean {
+        val lastAttemptWall = prefs.getLong(KEY_TOTP_LAST_ATTEMPT_WALL, 0L)
+        // A backwards wall-clock jump fails closed instead of resetting the throttle.
+        if (lastAttemptWall > nowWall) {
+            Log.w(TAG, "TOTP verification blocked after a system-clock rollback.")
+            return false
+        }
+
+        val lockoutUntil = prefs.getLong(KEY_TOTP_LOCKOUT_UNTIL_WALL, 0L)
+        if (nowWall < lockoutUntil) return false
+
+        if (lockoutUntil != 0L) {
+            val reset = prefs.edit()
+                .remove(KEY_TOTP_LOCKOUT_UNTIL_WALL)
+                .putInt(KEY_TOTP_FAILURE_COUNT, 0)
+                .putLong(KEY_TOTP_FAILURE_WINDOW_START_WALL, nowWall)
+                .commit()
+            if (!reset) {
+                Log.e(TAG, "Could not persist TOTP lockout reset; refusing authorization.")
+                return false
             }
         }
-        Log.w(TAG, "Partner TOTP verification failed for input.")
-        return false
+        return true
+    }
+
+    private fun recordTotpFailure(nowWall: Long) {
+        val storedWindowStart = prefs.getLong(KEY_TOTP_FAILURE_WINDOW_START_WALL, nowWall)
+        val withinWindow = nowWall >= storedWindowStart &&
+            nowWall - storedWindowStart < TOTP_FAILURE_WINDOW_MS
+        val windowStart = if (withinWindow) storedWindowStart else nowWall
+        val previousCount = if (withinWindow) prefs.getInt(KEY_TOTP_FAILURE_COUNT, 0) else 0
+        val failures = previousCount + 1
+
+        val editor = prefs.edit()
+            .putInt(KEY_TOTP_FAILURE_COUNT, failures)
+            .putLong(KEY_TOTP_FAILURE_WINDOW_START_WALL, windowStart)
+            .putLong(KEY_TOTP_LAST_ATTEMPT_WALL, nowWall)
+        if (failures >= MAX_TOTP_FAILURES) {
+            editor.putLong(KEY_TOTP_LOCKOUT_UNTIL_WALL, nowWall + TOTP_LOCKOUT_DURATION_MS)
+        }
+        if (!editor.commit()) {
+            Log.e(TAG, "Could not persist failed TOTP attempt.")
+        }
     }
 
     /**
@@ -114,7 +185,15 @@ class TamperLockManager(context: Context) {
     }
 
     private fun savePartnerSecret(secret: String) {
-        prefs.edit().putString(KEY_PARTNER_SECRET, secret).apply()
+        // Rotating the partner secret starts a new replay/throttle state for the new pairing.
+        prefs.edit()
+            .putString(KEY_PARTNER_SECRET, secret)
+            .remove(KEY_TOTP_LAST_ACCEPTED_STEP)
+            .remove(KEY_TOTP_LAST_ATTEMPT_WALL)
+            .remove(KEY_TOTP_FAILURE_COUNT)
+            .remove(KEY_TOTP_FAILURE_WINDOW_START_WALL)
+            .remove(KEY_TOTP_LOCKOUT_UNTIL_WALL)
+            .commit()
     }
 
     // =========================================================================
@@ -494,6 +573,16 @@ class TamperLockManager(context: Context) {
         private const val MAX_SANE_WALL_CLOCK_JUMP_MS = 7 * 24 * 3600 * 1000L // 7 days
 
         private const val KEY_PARTNER_SECRET = "partner_totp_secret"
+        private const val KEY_TOTP_LAST_ACCEPTED_STEP = "partner_totp_last_accepted_step"
+        private const val KEY_TOTP_LAST_ATTEMPT_WALL = "partner_totp_last_attempt_wall"
+        private const val KEY_TOTP_FAILURE_COUNT = "partner_totp_failure_count"
+        private const val KEY_TOTP_FAILURE_WINDOW_START_WALL = "partner_totp_failure_window_start_wall"
+        private const val KEY_TOTP_LOCKOUT_UNTIL_WALL = "partner_totp_lockout_until_wall"
+        private const val MAX_TOTP_FAILURES = 5
+        private const val TOTP_FAILURE_WINDOW_MS = 5 * 60 * 1000L
+        private const val TOTP_LOCKOUT_DURATION_MS = 60 * 1000L
+        private val TOTP_VERIFICATION_LOCK = Any()
+
         private const val KEY_COOLDOWN_ACTIVE = "cooldown_active"
         private const val KEY_COOLDOWN_COMPLETED = "cooldown_completed"
         private const val KEY_COOLDOWN_DURATION = "cooldown_duration"

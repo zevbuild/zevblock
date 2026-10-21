@@ -5,6 +5,11 @@ The goal is to fix the security findings below, preserve existing app behavior, 
 
 ## Required fixes
 
+### Implementation started
+- Added persisted TOTP accepted-step tracking and a failed-attempt throttle (five failures in a five-minute window trigger a one-minute lockout), with regression tests.
+- Added upstream DNS source IP/port checks and DNS response transaction/question/structure/truncation validation, with regression tests.
+- These changes have not yet been verified by running Gradle in this environment. Keystore-backed secrets/keys, release signing, and broader packet parser work remain open.
+
 1. **Partner TOTP replay and brute-force protection**
    - In `TamperLockManager`, reject a TOTP time step that has already been accepted.
    - Persist the last accepted time step atomically with successful authorization; handle the ±1-step clock window without accepting an older/replayed step.

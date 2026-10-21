@@ -1,5 +1,7 @@
 package com.zevbuild.zevblock
 
+import android.content.Context
+
 import com.zevbuild.zevblock.core.accessibility.NsfwContentDetector
 import com.zevbuild.zevblock.core.dns.DnsPacketBuilder
 import com.zevbuild.zevblock.core.dns.DnsPacketParser
@@ -17,6 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.ByteArrayOutputStream
 
@@ -215,6 +218,63 @@ class ZevBlockCoreTest {
         val decoded = TamperLockManager.Base32.decode(encoded)
 
         assertEquals(String(sample, Charsets.UTF_8), String(decoded, Charsets.UTF_8))
+    }
+
+    @Test
+    fun partnerTotp_rejectsReplayOfAnAcceptedTimeStep() {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("shieldguard_tamper_lock", Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val manager = TamperLockManager(context)
+        val secret = manager.setupNewPartnerSecret()
+        val currentStep = (System.currentTimeMillis() / 1000L) / 30L
+        val code = manager.generateTotpCodeForStep(secret, currentStep)
+
+        assertTrue(manager.verifyPartnerTotp(code))
+        assertFalse("The same TOTP step must not authorize a second time.", manager.verifyPartnerTotp(code))
+    }
+
+    @Test
+    fun partnerTotp_limitsRepeatedInvalidAttempts() {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("shieldguard_tamper_lock", Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val manager = TamperLockManager(context)
+        val secret = manager.setupNewPartnerSecret()
+        val currentStep = (System.currentTimeMillis() / 1000L) / 30L
+        val validCodes = (-3L..3L).map { manager.generateTotpCodeForStep(secret, currentStep + it) }.toSet()
+        val invalidCode = (0..999999)
+            .map { String.format(java.util.Locale.US, "%06d", it) }
+            .first { it !in validCodes }
+
+        repeat(5) {
+            assertFalse("Wrong codes must not be accepted.", manager.verifyPartnerTotp(invalidCode))
+        }
+        assertFalse("Valid code must be throttled during lockout.", manager.verifyPartnerTotp(
+            manager.generateTotpCodeForStep(secret, (System.currentTimeMillis() / 1000L) / 30L)
+        ))
+    }
+
+    @Test
+    fun dnsResponseValidator_rejectsMismatchedOrMalformedResponses() {
+        val query = createSampleDnsQuery("adultsite.com")
+        val parsedQuery = DnsPacketParser.parseDnsQuery(query)!!
+        val validResponse = DnsPacketBuilder.buildAResponse(parsedQuery, "1.2.3.4")
+        assertTrue(DnsPacketParser.isValidDnsResponse(query, validResponse))
+
+        val wrongId = validResponse.copyOf()
+        wrongId[0] = (wrongId[0].toInt() xor 0x01).toByte()
+        assertFalse(DnsPacketParser.isValidDnsResponse(query, wrongId))
+
+        val wrongQuestion = validResponse.copyOf()
+        wrongQuestion[13] = 'b'.code.toByte()
+        assertFalse(DnsPacketParser.isValidDnsResponse(query, wrongQuestion))
+
+        assertFalse(DnsPacketParser.isValidDnsResponse(query, validResponse.copyOf(8)))
+
+        val truncated = validResponse.copyOf()
+        truncated[2] = (truncated[2].toInt() or 0x02).toByte() // TC bit
+        assertFalse(DnsPacketParser.isValidDnsResponse(query, truncated))
     }
 
     // =========================================================================

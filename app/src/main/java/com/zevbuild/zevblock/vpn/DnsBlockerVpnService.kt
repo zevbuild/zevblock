@@ -426,13 +426,24 @@ open class DnsBlockerVpnService : VpnService() {
                     val recvPacket = DatagramPacket(recvBuffer, recvBuffer.size)
                     socket.receive(recvPacket)
 
-                    val rtt = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
-                    _lastUpstreamLatencyMs.value = rtt
+                    // DatagramSocket can receive replies from any sender unless connected.
+                    // Require the exact resolver IP and DNS port before considering the payload.
+                    if (recvPacket.address != upstreamAddr || recvPacket.port != 53) {
+                        Log.w(TAG, "Rejected DNS reply from unexpected source; trying next resolver.")
+                        continue
+                    }
 
                     val payload = ByteArray(recvPacket.length)
                     System.arraycopy(recvBuffer, 0, payload, 0, recvPacket.length)
+                    if (!DnsPacketParser.isValidDnsResponse(rawDnsQuery, payload)) {
+                        Log.w(TAG, "Rejected invalid upstream DNS response from $serverIp; trying next resolver.")
+                        continue
+                    }
+
+                    val rtt = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
+                    _lastUpstreamLatencyMs.value = rtt
                     dnsAnswerPayload = payload
-                    break // Succeeded with adult-filtered response
+                    break // Validated response received from expected adult-filtering resolver
                 } catch (e: Exception) {
                     // Try next resolver in the pool
                     continue

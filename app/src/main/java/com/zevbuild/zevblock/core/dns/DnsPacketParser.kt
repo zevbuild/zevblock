@@ -163,6 +163,128 @@ object DnsPacketParser {
         )
     }
 
+
+    /**
+     * Validates an upstream DNS response against the query we sent.
+     * Invalid responses must never be forwarded to the VPN client.
+     */
+    fun isValidDnsResponse(queryPayload: ByteArray, responsePayload: ByteArray): Boolean {
+        if (!isWellFormedDnsMessage(queryPayload, expectResponse = false)) return false
+        if (!isWellFormedDnsMessage(responsePayload, expectResponse = true)) return false
+
+        if (readUInt16(queryPayload, 0) != readUInt16(responsePayload, 0)) return false
+
+        val queryFlags = readUInt16(queryPayload, 2)
+        val responseFlags = readUInt16(responsePayload, 2)
+        // A truncated response cannot be safely forwarded as a complete DNS answer.
+        if ((responseFlags and 0x0200) != 0) return false
+        // The response opcode must match the query opcode.
+        if (((queryFlags ushr 11) and 0x0F) != ((responseFlags ushr 11) and 0x0F)) return false
+
+        val queryQuestion = readQuestionAt(queryPayload, 12) ?: return false
+        val responseQuestion = readQuestionAt(responsePayload, 12) ?: return false
+        return queryQuestion.question.name.equals(responseQuestion.question.name, ignoreCase = true) &&
+            queryQuestion.question.qType == responseQuestion.question.qType &&
+            queryQuestion.question.qClass == responseQuestion.question.qClass
+    }
+
+    private data class DecodedDnsName(val name: String, val nextOffset: Int)
+    private data class QuestionAtOffset(val question: DnsQuestion, val nextOffset: Int)
+
+    private fun isWellFormedDnsMessage(payload: ByteArray, expectResponse: Boolean): Boolean {
+        if (payload.size < 12) return false
+        val flags = readUInt16(payload, 2)
+        val isResponse = (flags and 0x8000) != 0
+        if (isResponse != expectResponse) return false
+        if (readUInt16(payload, 4) != 1) return false
+
+        val question = readQuestionAt(payload, 12) ?: return false
+        var offset = question.nextOffset
+
+        offset = skipResourceRecords(payload, offset, readUInt16(payload, 6)) ?: return false
+        offset = skipResourceRecords(payload, offset, readUInt16(payload, 8)) ?: return false
+        offset = skipResourceRecords(payload, offset, readUInt16(payload, 10)) ?: return false
+        // Reject trailing bytes instead of allowing malformed packet tails through.
+        return offset == payload.size
+    }
+
+    private fun readQuestionAt(payload: ByteArray, offset: Int): QuestionAtOffset? {
+        val decodedName = decodeDnsName(payload, offset) ?: return null
+        if (decodedName.nextOffset + 4 > payload.size) return null
+        val qType = readUInt16(payload, decodedName.nextOffset)
+        val qClass = readUInt16(payload, decodedName.nextOffset + 2)
+        return QuestionAtOffset(
+            question = DnsQuestion(decodedName.name, qType, qClass),
+            nextOffset = decodedName.nextOffset + 4
+        )
+    }
+
+    private fun skipResourceRecords(payload: ByteArray, startOffset: Int, count: Int): Int? {
+        var offset = startOffset
+        repeat(count) {
+            val ownerName = decodeDnsName(payload, offset) ?: return null
+            val headerOffset = ownerName.nextOffset
+            if (headerOffset + 10 > payload.size) return null
+            val dataLength = readUInt16(payload, headerOffset + 8)
+            val recordEnd = headerOffset + 10 + dataLength
+            if (recordEnd < headerOffset || recordEnd > payload.size) return null
+            offset = recordEnd
+        }
+        return offset
+    }
+
+    private fun decodeDnsName(payload: ByteArray, startOffset: Int): DecodedDnsName? {
+        if (startOffset !in payload.indices) return null
+        var offset = startOffset
+        var nextOffset = -1
+        var jumped = false
+        var hops = 0
+        var expandedLength = 0
+        val labels = ArrayList<String>()
+        val visited = HashSet<Int>()
+
+        while (true) {
+            if (offset !in payload.indices || !visited.add(offset)) return null
+            val labelLength = payload[offset].toInt() and 0xFF
+            when {
+                labelLength == 0 -> {
+                    offset++
+                    if (!jumped) nextOffset = offset
+                    if (nextOffset < 0) return null
+                    break
+                }
+                (labelLength and 0xC0) == 0xC0 -> {
+                    if (offset + 1 >= payload.size) return null
+                    val pointer = ((labelLength and 0x3F) shl 8) or
+                        (payload[offset + 1].toInt() and 0xFF)
+                    // RFC 1035 compression pointers must refer to an earlier occurrence.
+                    if (pointer < 12 || pointer >= offset || pointer >= payload.size) return null
+                    if (!jumped) {
+                        nextOffset = offset + 2
+                        jumped = true
+                    }
+                    offset = pointer
+                    hops++
+                    if (hops > 16) return null
+                }
+                (labelLength and 0xC0) != 0 -> return null
+                else -> {
+                    if (labelLength > 63 || offset + 1 + labelLength > payload.size) return null
+                    expandedLength += labelLength + 1
+                    if (expandedLength > 255) return null
+                    labels.add(String(payload, offset + 1, labelLength, Charsets.US_ASCII))
+                    offset += 1 + labelLength
+                }
+            }
+        }
+        return DecodedDnsName(labels.joinToString(".").lowercase(), nextOffset)
+    }
+
+    private fun readUInt16(payload: ByteArray, offset: Int): Int {
+        return ((payload[offset].toInt() and 0xFF) shl 8) or
+            (payload[offset + 1].toInt() and 0xFF)
+    }
+
     private fun readDomainFromOffset(buffer: ByteArray, startOffset: Int, maxDepth: Int = 5): String? {
         if (maxDepth <= 0 || startOffset >= buffer.size) return null
         var offset = startOffset
