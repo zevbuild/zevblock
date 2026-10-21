@@ -78,16 +78,17 @@ jobs:
             exit 1
           fi
           echo "Found APK: $APK_FILE"
-          TAG_NAME="${GITHUB_REF_NAME:-v2.2}"
-          cp "$APK_FILE" "dist/ZevBlock-${TAG_NAME}.apk"
-          cp "$APK_FILE" dist/ZevBlock-v2.2.apk
+          TAG_NAME="${GITHUB_REF_NAME:-v2.3}"
+          SAFE_TAG=$(echo "$TAG_NAME" | tr '/' '-')
+          cp "$APK_FILE" "dist/ZevBlock-${SAFE_TAG}.apk"
+          cp "$APK_FILE" dist/ZevBlock-v2.3.apk
           cp "$APK_FILE" dist/ZevBlock-latest.apk
           ls -la dist/
 
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZevBlock-v2.2-apk
+          name: ZevBlock-v2.3-apk
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 90
