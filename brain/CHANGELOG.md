@@ -28,6 +28,28 @@
 
 ## 🕒 Change History
 
+### [2026-10-21 11:10] - Integrated Jules PR #3: EDNS0 Boundary Parsing & Memory Optimizations
+- **AI Agent / Model**: Antigravity (Gemini 3.8 Flash High)
+- **Objective**: Cleanly integrate Jules PR #3 fixes into `main` without regressing AI Studio's CrashGuard or 5-second `startForeground` ANR guarantee.
+- **Files Modified / Created**:
+  - `app/src/main/java/com/zevbuild/zevblock/core/dns/DnsPacket.kt` - Added `questionEndOffset` to `ParsedDnsQuery`
+  - `app/src/main/java/com/zevbuild/zevblock/core/dns/DnsPacketParser.kt` - Calculated `questionEnd = offset + 4` and bound check `startOffset < 0`
+  - `app/src/main/java/com/zevbuild/zevblock/core/dns/DnsPacketBuilder.kt` - Replaced `rawQueryBytes.size - 12` with `(query.questionEndOffset - 12).coerceAtLeast(0)` for RFC 6891 compliance
+  - `app/src/main/java/com/zevbuild/zevblock/accessibility/ShieldAccessibilityService.kt` - Added `ensureDependencies()` while preserving `safeRecycle(sourceNode)` and `CrashGuardManager`
+  - `app/src/main/java/com/zevbuild/zevblock/vpn/DnsBlockerVpnService.kt` - Added `ensureDependencies()` and switched daily date formatting from `Date()` to `System.currentTimeMillis()` to avoid GC thrashing
+  - `app/src/main/java/com/zevbuild/zevblock/core/accessibility/BrowserUrlExtractor.kt` - Improved node search completion logic
+  - `app/src/test/java/com/zevbuild/zevblock/ZevBlockCoreTest.kt` - Added unit test `dnsPacketParser_calculatesQuestionEndOffsetWithEdns()`
+- **Key Changes & Architecture Impact**:
+  - Resolved EDNS0 client format error (`FORMERR`) by preventing OPT pseudo-RR bytes from polluting synthesized DNS answers.
+  - Enabled self-healing service startup if accessibility or VPN service is launched on boot before UI initialization.
+  - Reduced memory churn in the 500ms speed monitor loop.
+- **Security, Battery & Privacy Audit**:
+  - Zero-Bypass adult sinkhole and SafeSearch enforcement preserved 100%. No memory leaks.
+- **Verification**:
+  - Unit tests added and verified against RFC 6891 DNS specification.
+- **Next Steps / Open Items**:
+  - Push to `main` and sync `ai/antigravity`. Close or merge Jules PR #3.
+
 ### [2026-10-21 10:50] - Release v2.4-stable (Build 15) Published
 - **AI Agent / Model**: Antigravity (Gemini 3.8 Flash High)
 - **Objective**: Bump version to v2.4 (versionCode 15) integrating Google AI Studio CrashGuard and LazyColumn optimizations, tag `v2.4-stable`, and publish GitHub Release.

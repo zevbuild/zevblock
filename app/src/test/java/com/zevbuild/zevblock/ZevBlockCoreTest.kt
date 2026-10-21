@@ -164,6 +164,23 @@ class ZevBlockCoreTest {
     // 4. Raw DNS Packet Building & Synthesis Tests
     // =========================================================================
     @Test
+    fun dnsPacketParser_calculatesQuestionEndOffsetWithEdns() {
+        val baseQuery = createSampleDnsQuery("adultsite.com")
+        // Append 11 dummy EDNS option bytes to simulate EDNS0 query packet
+        val ednsQueryBytes = baseQuery + byteArrayOf(0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+
+        val parsedQuery = DnsPacketParser.parseDnsQuery(ednsQueryBytes)
+        assertNotNull("Failed to parse EDNS query", parsedQuery)
+        assertEquals(baseQuery.size, parsedQuery!!.questionEndOffset)
+
+        // Verify synthesized response copies only question section (baseQuery.size - 12)
+        val sinkholeResponse = DnsPacketBuilder.buildSinkholeResponse(parsedQuery, blockedIp = "0.0.0.0")
+        // Answer header (12) + Question section (baseQuery.size - 12) + Answer RR (16)
+        val expectedLength = 12 + (baseQuery.size - 12) + 16
+        assertEquals(expectedLength, sinkholeResponse.size)
+    }
+
+    @Test
     fun dnsPacketBuilder_synthesizesSinkholeResponse() {
         val queryBytes = createSampleDnsQuery("adultsite.com")
         val parsedQuery = DnsPacketParser.parseDnsQuery(queryBytes)
