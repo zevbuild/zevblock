@@ -1,6 +1,7 @@
 package com.zevbuild.zevblock.core.accessibility
 
 import java.net.URLDecoder
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * NsfwContentDetector:
@@ -53,12 +54,18 @@ class NsfwContentDetector {
     )
 
     private val customKeywords = HashSet<String>()
+    private val customKeywordRegexCache = ConcurrentHashMap<String, Regex>()
+
+    private val precompiledRegexes: Map<String, Regex> = nsfwKeywords
+        .filter { it.length <= 5 && !it.startsWith("r/") }
+        .associateWith { Regex("""(?i)(^|[^a-z0-9])${Regex.escape(it)}([^a-z0-9]|$)""") }
 
     var isEnabled: Boolean = true
 
     fun setCustomKeywords(keywords: Collection<String>) {
         synchronized(customKeywords) {
             customKeywords.clear()
+            customKeywordRegexCache.clear()
             for (kw in keywords) {
                 val clean = kw.lowercase().trim()
                 if (clean.length >= 2) {
@@ -155,7 +162,10 @@ class NsfwContentDetector {
         // For words with length <= 5 or short terms (e.g. "anal", "dick", "sex", "xxx", "cum"),
         // enforce word boundaries so harmless words like "analysis", "canal", "essex", "document" are not falsely flagged.
         if (keyword.length <= 5 && !keyword.startsWith("r/")) {
-            val regex = Regex("""(?i)(^|[^a-z0-9])${Regex.escape(keyword)}([^a-z0-9]|$)""")
+            val regex = precompiledRegexes[keyword]
+                ?: customKeywordRegexCache.computeIfAbsent(keyword) {
+                    Regex("""(?i)(^|[^a-z0-9])${Regex.escape(it)}([^a-z0-9]|$)""")
+                }
             return regex.containsMatchIn(text)
         }
 

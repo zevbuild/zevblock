@@ -25,8 +25,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.DatagramPacket
@@ -47,6 +50,7 @@ open class DnsBlockerVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var serviceJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val upstreamSemaphore = Semaphore(32)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
@@ -136,7 +140,8 @@ open class DnsBlockerVpnService : VpnService() {
         while (scope.isActive && _isRunning.value) {
             try {
                 val bytesRead = fis.read(packetBuffer)
-                if (bytesRead <= 0) continue
+                if (bytesRead < 0) break
+                if (bytesRead == 0) continue
 
                 // 1. Parse raw IP/UDP packet
                 val ipPacket = DnsPacketParser.parseIpPacket(packetBuffer, bytesRead) ?: continue
@@ -191,15 +196,19 @@ open class DnsBlockerVpnService : VpnService() {
 
                 // 5. Step C: Forward clean query to Upstream Adult-Filtering DNS Resolver asynchronously
                 scope.launch(Dispatchers.IO) {
-                    forwardUpstreamDns(ipPacket, dnsQuery.rawQueryBytes, fos)
+                    upstreamSemaphore.withPermit {
+                        forwardUpstreamDns(ipPacket, dnsQuery.rawQueryBytes, fos)
+                    }
                 }
                 logDnsEvent(domain, "Allowed", isBlocked = false, isSafeSearch = false, reason = "Upstream Resolved (Adult-Filtered)")
                 statsManager?.recordDnsQuery(isBlocked = false, isSafeSearch = false)
 
             } catch (e: Exception) {
-                if (scope.isActive) {
-                    Log.e(TAG, "Error processing DNS packet in loop", e)
+                if (!scope.isActive) {
+                    break
                 }
+                Log.e(TAG, "Error processing DNS packet in loop", e)
+                delay(50)
             }
         }
     }
@@ -291,6 +300,7 @@ open class DnsBlockerVpnService : VpnService() {
     }
 
     private fun stopVpn() {
+        statsManager?.flushDnsCounters()
         Log.i(TAG, "Stopping ShieldGuard DNS Sinkhole...")
         _isRunning.value = false
         serviceJob?.cancel()

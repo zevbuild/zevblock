@@ -1,6 +1,7 @@
 ﻿package com.zevbuild.zevblock.core.stats
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import com.zevbuild.zevblock.core.security.TamperLockManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +45,11 @@ class ProtectionStatsManager(
     private val _streakDays = MutableStateFlow(1)
     val streakDays: StateFlow<Int> = _streakDays.asStateFlow()
 
+    private var pendingTotalQueries: Long = 0L
+    private var pendingDnsBlocked: Long = 0L
+    private var pendingSafeSearch: Long = 0L
+    private var lastDnsFlushTime: Long = 0L
+
     init {
         ensureStreakInitialized()
         refreshStats()
@@ -65,19 +71,51 @@ class ProtectionStatsManager(
 
     @Synchronized
     fun recordDnsQuery(isBlocked: Boolean, isSafeSearch: Boolean) {
+        pendingTotalQueries++
+        if (isBlocked) {
+            pendingDnsBlocked++
+        }
+        if (isSafeSearch) {
+            pendingSafeSearch++
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastDnsFlushTime >= DNS_FLUSH_INTERVAL_MS) {
+            flushDnsCounters()
+        }
+    }
+
+    @Synchronized
+    fun flushDnsCounters() {
+        lastDnsFlushTime = SystemClock.elapsedRealtime()
+        if (pendingTotalQueries == 0L && pendingDnsBlocked == 0L && pendingSafeSearch == 0L) {
+            return
+        }
+
+        val totalToAdd = pendingTotalQueries
+        val blockedToAdd = pendingDnsBlocked
+        val safeSearchToAdd = pendingSafeSearch
+
+        pendingTotalQueries = 0L
+        pendingDnsBlocked = 0L
+        pendingSafeSearch = 0L
+
         val today = getTodayDateString()
         val record = getDayRecord(today)
 
-        record.totalQueries++
-        if (isBlocked) {
-            record.dnsBlocked++
-            incrementCumulative(KEY_CUMULATIVE_DNS_BLOCKED)
+        record.totalQueries += totalToAdd
+        record.dnsBlocked += blockedToAdd
+        record.safeSearchRewrites += safeSearchToAdd
+
+        if (totalToAdd > 0L) {
+            addCumulative(KEY_CUMULATIVE_TOTAL_QUERIES, totalToAdd)
         }
-        if (isSafeSearch) {
-            record.safeSearchRewrites++
-            incrementCumulative(KEY_CUMULATIVE_SAFESEARCH)
+        if (blockedToAdd > 0L) {
+            addCumulative(KEY_CUMULATIVE_DNS_BLOCKED, blockedToAdd)
         }
-        incrementCumulative(KEY_CUMULATIVE_TOTAL_QUERIES)
+        if (safeSearchToAdd > 0L) {
+            addCumulative(KEY_CUMULATIVE_SAFESEARCH, safeSearchToAdd)
+        }
 
         saveDayRecord(today, record)
         refreshStats()
@@ -85,6 +123,9 @@ class ProtectionStatsManager(
 
     @Synchronized
     fun recordScreenBlock() {
+        if (pendingTotalQueries > 0L || pendingDnsBlocked > 0L || pendingSafeSearch > 0L) {
+            flushDnsCounters()
+        }
         val today = getTodayDateString()
         val record = getDayRecord(today)
         record.screenNsfwBlocked++
@@ -95,6 +136,9 @@ class ProtectionStatsManager(
 
     @Synchronized
     fun recordIncognitoBlock() {
+        if (pendingTotalQueries > 0L || pendingDnsBlocked > 0L || pendingSafeSearch > 0L) {
+            flushDnsCounters()
+        }
         val today = getTodayDateString()
         val record = getDayRecord(today)
         record.incognitoBlocked++
@@ -105,6 +149,9 @@ class ProtectionStatsManager(
 
     @Synchronized
     fun recordChatWarning() {
+        if (pendingTotalQueries > 0L || pendingDnsBlocked > 0L || pendingSafeSearch > 0L) {
+            flushDnsCounters()
+        }
         val today = getTodayDateString()
         val record = getDayRecord(today)
         record.chatWarnings++
@@ -115,6 +162,9 @@ class ProtectionStatsManager(
 
     @Synchronized
     fun recordSettingsTamper() {
+        if (pendingTotalQueries > 0L || pendingDnsBlocked > 0L || pendingSafeSearch > 0L) {
+            flushDnsCounters()
+        }
         val today = getTodayDateString()
         val record = getDayRecord(today)
         record.settingsTamperBlocked++
@@ -180,6 +230,11 @@ class ProtectionStatsManager(
             return false
         }
 
+        pendingTotalQueries = 0L
+        pendingDnsBlocked = 0L
+        pendingSafeSearch = 0L
+        lastDnsFlushTime = 0L
+
         prefs.edit()
             .clear()
             .putLong(KEY_STREAK_START_TIMESTAMP, System.currentTimeMillis())
@@ -191,9 +246,14 @@ class ProtectionStatsManager(
         return true
     }
 
-    private fun incrementCumulative(key: String) {
+    fun addCumulative(key: String, by: Long) {
+        if (by <= 0L) return
         val current = prefs.getLong(key, 0L)
-        prefs.edit().putLong(key, current + 1L).apply()
+        prefs.edit().putLong(key, current + by).apply()
+    }
+
+    private fun incrementCumulative(key: String) {
+        addCumulative(key, 1L)
     }
 
     private fun getDayRecord(dateStr: String): RawDayRecord {
@@ -239,6 +299,8 @@ class ProtectionStatsManager(
     companion object {
         private const val TAG = "ProtectionStatsManager"
         private const val PREFS_NAME = "zevblock_protection_stats_prefs"
+
+        private const val DNS_FLUSH_INTERVAL_MS = 10_000L // 10 seconds
 
         private const val KEY_STREAK_START_TIMESTAMP = "streak_start_timestamp"
         private const val KEY_FIRST_INSTALL_TIMESTAMP = "first_install_timestamp"

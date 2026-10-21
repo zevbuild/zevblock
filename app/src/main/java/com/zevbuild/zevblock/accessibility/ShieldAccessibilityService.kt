@@ -42,6 +42,12 @@ class ShieldAccessibilityService : AccessibilityService() {
     private val settingsTamperGuard = SettingsTamperGuard()
     private var lastChatWarningTime = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var lastKeywords: Set<String>? = null
+    private var pendingPackageName: String? = null
+    private val scanRunnable = Runnable {
+        val pkg = pendingPackageName ?: return@Runnable
+        scanWindow(pkg)
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -54,22 +60,21 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         val packageName = event.packageName?.toString() ?: return
 
-        // Zero-Bypass Guarantee:
-        // Even when a partner temporary bypass session is active, adult content, explicit searches,
-        // incognito browsing, and settings tampering are NEVER bypassed!
-        // Only user-defined custom keywords are temporarily relaxed during bypass.
-        val isBypassActive = TamperLockManager.isBypassActive(this)
+        // Skip exempt packages at the top of onAccessibilityEvent
+        if (isExemptPackage(packageName)) return
 
-        // Sync custom keywords from customRuleManager
+        // Call nsfwContentDetector.setCustomKeywords() only when the keyword set actually changed
         customRuleManager?.let {
-            nsfwContentDetector.setCustomKeywords(it.customKeywords.value)
+            val currentKeywords = it.customKeywords.value
+            if (currentKeywords != lastKeywords) {
+                lastKeywords = currentKeywords.toSet()
+                nsfwContentDetector.setCustomKeywords(currentKeywords)
+            }
         }
 
-        // =====================================================================
-        // Real-time Keystroke & Input Scraper for Messaging Apps (WhatsApp, etc.)
-        // Inspects text while typing, before full window tree traversal.
-        // =====================================================================
+        // Keep the messaging-app typing check immediate (it is cheap)
         if (isNsfwFilterEnabled && isMessagingApp(packageName)) {
+            val isBypassActive = TamperLockManager.isBypassActive(this)
             val eventTexts = event.text
             if (!eventTexts.isNullOrEmpty()) {
                 for (charSeq in eventTexts) {
@@ -114,6 +119,15 @@ class ShieldAccessibilityService : AccessibilityService() {
                 sourceNode.recycle()
             }
         }
+
+        // Debounce the heavy scan: store latest package name, removeCallbacks, then postDelayed(600ms) on mainHandler
+        pendingPackageName = packageName
+        mainHandler.removeCallbacks(scanRunnable)
+        mainHandler.postDelayed(scanRunnable, 600L)
+    }
+
+    private fun scanWindow(packageName: String) {
+        val isBypassActive = TamperLockManager.isBypassActive(this)
 
         try {
             val rootNode: AccessibilityNodeInfo? = rootInActiveWindow
@@ -172,7 +186,7 @@ class ShieldAccessibilityService : AccessibilityService() {
             // 2. SETTINGS GUARD: Prevent App Info, VPN, Admin, or Accessibility tampering
             // =================================================================
             if (isSettingsGuardEnabled && SettingsTamperGuard.SETTINGS_PACKAGES.contains(packageName)) {
-                val tamperEvent = settingsTamperGuard.inspect(packageName, event.className?.toString(), rootNode)
+                val tamperEvent = settingsTamperGuard.inspect(packageName, null, rootNode)
                 if (tamperEvent != null) {
                     Log.w(TAG, "Settings tamper detected: ${tamperEvent.target} - ${tamperEvent.reason}")
                     performGlobalAction(GLOBAL_ACTION_BACK)
@@ -315,6 +329,7 @@ class ShieldAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        mainHandler.removeCallbacks(scanRunnable)
         _isServiceActive.value = false
         Log.i(TAG, "ShieldAccessibilityService destroyed")
     }
