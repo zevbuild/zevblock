@@ -4,7 +4,7 @@ This document reflects the current operational state, implemented features, veri
 
 ---
 
-## 🟢 Operational Status (Version 2.4 / Build 15)
+## 🟢 Operational Status (Version 2.5 / Build 16)
 
 | Component / Subsystem | Status | Description |
 | :--- | :--- | :--- |

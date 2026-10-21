@@ -28,6 +28,24 @@
 
 ## 🕒 Change History
 
+### [2026-10-21 11:52] - Release v2.5-stable (Build 16) Published
+- **AI Agent / Model**: Antigravity (Gemini 3.8 Flash High)
+- **Objective**: Bump version to v2.5 (versionCode 16) integrating full security audit hardening (Hardware Keystore AES-256-GCM, TOTP replay rejection, brute-force lockout, upstream DNS response validation, RFC 8200 IPv6 extension headers), tag `v2.5-stable`, and trigger GitHub Release.
+- **Files Modified / Created**:
+  - `app/build.gradle.kts` - Bumped versionCode to 16, versionName to "2.5"
+  - `.github/workflows/build.yml` - Configured release artifact naming and packaging for v2.5
+  - `brain/SYSTEM_STATE.md` - Updated operational state to v2.5 / Build 16
+- **Key Changes & Architecture Impact**:
+  - Merged PR #2 (`codex/zevblock-security-fixes`) into `main`.
+  - Released APKs: `ZevBlock-v2.5-stable.apk`, `ZevBlock-v2.5.apk`, and `ZevBlock-latest.apk`.
+  - Enforced 100% Zero-Bypass adult sinkhole and SafeSearch enforcement.
+- **Security, Battery & Privacy Audit**:
+  - Complete security hardening audit passed; all unit regression tests passing.
+- **Verification**:
+  - Validated via CI build and unit test suites.
+- **Next Steps / Open Items**:
+  - Distribute v2.5-stable release to users.
+
 ### [2026-10-21 11:28] - Implemented Complete Security Audit Hardening (Codex PR #2)
 - **AI Agent / Model**: Antigravity (Gemini 3.8 Flash High)
 - **Objective**: Implement all required security audit fixes specified in `CODEX_TASK.md` on branch `codex/zevblock-security-fixes` (TOTP replay, Keystore AES-GCM, upstream DNS validation, cooldown HMAC, IPv6 extension headers, regression tests).
