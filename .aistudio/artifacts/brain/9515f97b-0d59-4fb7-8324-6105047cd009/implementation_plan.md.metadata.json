@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan to eliminate app startup crashes, fix foreground VPN service lifecycle exceptions, offload heavy initialization from the Main UI thread, convert Dashboard to LazyColumn with lightweight battery-friendly animations, and add an automatic Crash Guard & Diagnostics viewer in the Tools tab.",
+  "updatedAt":  "2026-10-21T04:31:49.884696385Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
