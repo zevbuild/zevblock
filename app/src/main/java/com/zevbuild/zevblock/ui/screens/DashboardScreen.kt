@@ -19,6 +19,7 @@ import androidx.compose.ui.res.painterResource
 import com.zevbuild.zevblock.R
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,10 +28,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
@@ -130,7 +130,6 @@ fun DashboardScreen(
     onCancelBypass: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     val updateStatus by AppUpdateManager.updateStatus.collectAsState()
 
@@ -140,72 +139,62 @@ fun DashboardScreen(
     val streakDays by (statsManager?.streakDays ?: remember { MutableStateFlow(1) }).collectAsState()
 
     LaunchedEffect(Unit) {
-        AppUpdateManager.checkForUpdate(context)
+        AppUpdateManager.checkForUpdateOncePerSession(context)
     }
 
     val isFullDefenseActive = isVpnRunning && isAccessibilityActive && deviceOwnerStatus.isDeviceOwner && !isBypassActive
 
-    // Pulsing animation for shield
-    val infiniteTransition = rememberInfiniteTransition(label = "shield_pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (isFullDefenseActive) 1.05f else 1.02f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_scale"
-    )
-
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(16.dp),
+            .testTag("dashboard_lazy_column"),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Urgent Temporary Bypass Active Banner
         if (isBypassActive) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("temporary_bypass_active_card"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = ShieldAmber.copy(alpha = 0.15f)),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(ShieldAmber)
-                )
-            ) {
-                Row(
+            item(key = "bypass_banner") {
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .testTag("temporary_bypass_active_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = ShieldAmber.copy(alpha = 0.15f)),
+                    border = CardDefaults.outlinedCardBorder().copy(
+                        brush = androidx.compose.ui.graphics.SolidColor(ShieldAmber)
+                    )
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = ShieldAmber, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("CUSTOM RULES BYPASS ACTIVE", fontWeight = FontWeight.Bold, color = ShieldAmber, fontSize = 13.sp)
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        val sec = bypassRemainingMs / 1000
-                        val min = sec / 60
-                        val s = sec % 60
-                        Text(
-                            text = "Custom rules unlocked • Adult Shield strictly ACTIVE • %02d:%02d left".format(min, s),
-                            color = TextPrimaryDark,
-                            fontSize = 12.sp
-                        )
-                    }
-
-                    Button(
-                        onClick = onCancelBypass,
-                        colors = ButtonDefaults.buttonColors(containerColor = ShieldRed),
-                        shape = RoundedCornerShape(8.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Re-Lock", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = ShieldAmber, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("CUSTOM RULES BYPASS ACTIVE", fontWeight = FontWeight.Bold, color = ShieldAmber, fontSize = 13.sp)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val sec = bypassRemainingMs / 1000
+                            val min = sec / 60
+                            val s = sec % 60
+                            Text(
+                                text = String.format(java.util.Locale.US, "Custom rules unlocked • Adult Shield strictly ACTIVE • %02d:%02d left", min, s),
+                                color = TextPrimaryDark,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        Button(
+                            onClick = onCancelBypass,
+                            colors = ButtonDefaults.buttonColors(containerColor = ShieldRed),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Re-Lock", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
                     }
                 }
             }
@@ -213,10 +202,11 @@ fun DashboardScreen(
 
         // Quick 2-Step Setup Card (Shown when core setup is incomplete)
         if (!isAccessibilityActive || !isVpnRunning) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("quick_setup_card"),
+            item(key = "quick_setup_card") {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("quick_setup_card"),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
                 border = CardDefaults.outlinedCardBorder().copy(
@@ -321,132 +311,137 @@ fun DashboardScreen(
                     }
                 }
             }
+            }
         }
         // New Update Prompt Card
         if (updateStatus is UpdateStatus.UpdateAvailable) {
-            val release = (updateStatus as UpdateStatus.UpdateAvailable).release
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("app_update_card"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = ShieldNavyDark),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(ShieldTeal)
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.SystemUpdate,
-                            contentDescription = "Update Available",
-                            tint = ShieldGreen,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "New Update: ${release.tagName}",
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimaryDark,
-                            fontSize = 15.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = release.releaseNotes.take(160),
-                        color = TextSecondaryDark,
-                        fontSize = 12.sp,
-                        maxLines = 3
+            item(key = "update_available_card") {
+                val release = (updateStatus as UpdateStatus.UpdateAvailable).release
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("app_update_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = ShieldNavyDark),
+                    border = CardDefaults.outlinedCardBorder().copy(
+                        brush = androidx.compose.ui.graphics.SolidColor(ShieldTeal)
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { AppUpdateManager.downloadApk(context, release) },
-                            colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Download & Install", color = ShieldGreen, fontWeight = FontWeight.Bold)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = "Update Available",
+                                tint = ShieldGreen,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "New Update: ${release.tagName}",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark,
+                                fontSize = 15.sp
+                            )
                         }
-                        OutlinedButton(
-                            onClick = { AppUpdateManager.dismissUpdate() }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = release.releaseNotes.take(160),
+                            color = TextSecondaryDark,
+                            fontSize = 12.sp,
+                            maxLines = 3
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("Later", color = TextMutedDark)
+                            Button(
+                                onClick = { AppUpdateManager.downloadApk(context, release) },
+                                colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Download & Install", color = ShieldGreen, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { AppUpdateManager.dismissUpdate() }
+                            ) {
+                                Text("Later", color = TextMutedDark)
+                            }
                         }
                     }
                 }
             }
         } else if (updateStatus is UpdateStatus.Downloading) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark)
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            item(key = "update_downloading_card") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark)
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = ShieldTeal,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "Downloading latest release from GitHub...",
-                        color = TextPrimaryDark,
-                        fontSize = 13.sp
-                    )
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = ShieldTeal,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Downloading latest release from GitHub...",
+                            color = TextPrimaryDark,
+                            fontSize = 13.sp
+                        )
+                    }
                 }
             }
         }
         // Hero Shield Card
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("hero_status_card"),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
-            border = CardDefaults.outlinedCardBorder().copy(
-                brush = androidx.compose.ui.graphics.SolidColor(
-                    if (isFullDefenseActive) ShieldGreen else if (isVpnRunning || isAccessibilityActive) ShieldTeal else ShieldBorderDark
-                )
-            )
-        ) {
-            Column(
+        item(key = "hero_status_card") {
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(22.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Animated Shield Emblem
-                Box(
-                    modifier = Modifier
-                        .size(76.dp)
-                        .scale(pulseScale)
-                        .clip(CircleShape)
-                        .background(
-                            if (isFullDefenseActive) ShieldGreen.copy(alpha = 0.18f)
-                            else if (isVpnRunning || isAccessibilityActive) ShieldTeal.copy(alpha = 0.18f)
-                            else ShieldAmber.copy(alpha = 0.15f)
-                        )
-                        .border(
-                            2.dp,
-                            if (isFullDefenseActive) ShieldGreen
-                            else if (isVpnRunning || isAccessibilityActive) ShieldTeal
-                            else ShieldAmber,
-                            CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_zevblock_logo),
-                        contentDescription = "ZevBlock Shield",
-                        modifier = Modifier.size(46.dp)
+                    .testTag("hero_status_card"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(
+                        if (isFullDefenseActive) ShieldGreen else if (isVpnRunning || isAccessibilityActive) ShieldTeal else ShieldBorderDark
                     )
-                }
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Shield Emblem (Static lightweight rendering for zero idle GPU drain)
+                    Box(
+                        modifier = Modifier
+                            .size(76.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isFullDefenseActive) ShieldGreen.copy(alpha = 0.18f)
+                                else if (isVpnRunning || isAccessibilityActive) ShieldTeal.copy(alpha = 0.18f)
+                                else ShieldAmber.copy(alpha = 0.15f)
+                            )
+                            .border(
+                                2.dp,
+                                if (isFullDefenseActive) ShieldGreen
+                                else if (isVpnRunning || isAccessibilityActive) ShieldTeal
+                                else ShieldAmber,
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_zevblock_logo),
+                            contentDescription = "ZevBlock Shield",
+                            modifier = Modifier.size(46.dp)
+                        )
+                    }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
@@ -502,152 +497,166 @@ fun DashboardScreen(
                 }
             }
         }
+        }
 
         // Live Real-Time Network Telemetry Visualizer Wave & Counters
-        NetworkTelemetryWaveCard(
-            isVpnRunning = isVpnRunning,
-            totalInspectedQueries = (allTimeBlocks + todayStat.totalBlocks + ruleCount * 4L).coerceAtLeast(18L)
-        )
+        item(key = "telemetry_wave_card") {
+            NetworkTelemetryWaveCard(
+                isVpnRunning = isVpnRunning,
+                totalInspectedQueries = (allTimeBlocks + todayStat.totalBlocks + ruleCount * 4L).coerceAtLeast(18L),
+                dnsLogs = dnsLogs
+            )
+        }
 
         // 7-Day Visual Activity Bar Chart & Protection Streak
-        WeeklyProtectionBarChart(
-            past7Days = past7Days,
-            streakDays = streakDays,
-            allTimeTotalBlocks = allTimeBlocks,
-            todayTotalBlocks = todayStat.totalBlocks
-        )
+        item(key = "weekly_bar_chart") {
+            WeeklyProtectionBarChart(
+                past7Days = past7Days,
+                streakDays = streakDays,
+                allTimeTotalBlocks = allTimeBlocks,
+                todayTotalBlocks = todayStat.totalBlocks
+            )
+        }
 
         // Module Defense Grid (2x2 Cards)
-        Text(
-            text = "DEFENSE MODULES",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            color = TextSecondaryDark,
-            letterSpacing = 1.sp
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            ModuleStatusCard(
-                modifier = Modifier.weight(1f),
-                title = "DNS Sinkhole",
-                subtitle = if (isVpnRunning) "Filtering traffic" else "Stopped",
-                active = isVpnRunning,
-                icon = Icons.Default.Dns,
-                activeColor = ShieldGreen,
-                onClick = onToggleVpn
-            )
-
-            ModuleStatusCard(
-                modifier = Modifier.weight(1f),
-                title = "Browser Guard",
-                subtitle = if (isAccessibilityActive) "Scraper running" else "Disabled",
-                active = isAccessibilityActive,
-                icon = Icons.Default.Visibility,
-                activeColor = ShieldGreen,
-                onClick = onNavigateToSetup
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            ModuleStatusCard(
-                modifier = Modifier.weight(1f),
-                title = "Device Owner",
-                subtitle = if (deviceOwnerStatus.isDeviceOwner) "Anti-uninstall locked" else "ADB required",
-                active = deviceOwnerStatus.isDeviceOwner,
-                icon = Icons.Default.PhoneAndroid,
-                activeColor = ShieldGreen,
-                onClick = onNavigateToSetup
-            )
-
-            ModuleStatusCard(
-                modifier = Modifier.weight(1f),
-                title = "Partner Lock",
-                subtitle = if (hasPartnerConfigured) "Paired (TOTP)" else "Unpaired",
-                active = hasPartnerConfigured,
-                icon = Icons.Default.Lock,
-                activeColor = ShieldTeal,
-                onClick = onNavigateToSetup
-            )
-        }
-
-        // Quick Lockdown Actions Card
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("lockdown_actions_card"),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+        item(key = "defense_modules_grid") {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "System Anti-Bypass Policies",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = TextPrimaryDark
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Lock uninstallation, Safe Mode, and Always-On VPN atomically via DevicePolicyManager.",
+                    text = "DEFENSE MODULES",
                     fontSize = 12.sp,
-                    color = TextSecondaryDark
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextSecondaryDark,
+                    letterSpacing = 1.sp
                 )
-
-                Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Button(
-                        onClick = onApplyLockdown,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("dashboard_apply_policies"),
-                        colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(imageVector = Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Enforce Lockdown", fontSize = 12.sp, color = Color.White)
-                    }
+                    ModuleStatusCard(
+                        modifier = Modifier.weight(1f),
+                        title = "DNS Sinkhole",
+                        subtitle = if (isVpnRunning) "Filtering traffic" else "Stopped",
+                        active = isVpnRunning,
+                        icon = Icons.Default.Dns,
+                        activeColor = ShieldGreen,
+                        onClick = onToggleVpn
+                    )
 
-                    OutlinedButton(
-                        onClick = onReleaseLockdown,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("dashboard_release_policies"),
-                        shape = RoundedCornerShape(8.dp)
+                    ModuleStatusCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Browser Guard",
+                        subtitle = if (isAccessibilityActive) "Scraper running" else "Disabled",
+                        active = isAccessibilityActive,
+                        icon = Icons.Default.Visibility,
+                        activeColor = ShieldGreen,
+                        onClick = onNavigateToSetup
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    ModuleStatusCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Device Owner",
+                        subtitle = if (deviceOwnerStatus.isDeviceOwner) "Anti-uninstall locked" else "ADB required",
+                        active = deviceOwnerStatus.isDeviceOwner,
+                        icon = Icons.Default.PhoneAndroid,
+                        activeColor = ShieldGreen,
+                        onClick = onNavigateToSetup
+                    )
+
+                    ModuleStatusCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Partner Lock",
+                        subtitle = if (hasPartnerConfigured) "Paired (TOTP)" else "Unpaired",
+                        active = hasPartnerConfigured,
+                        icon = Icons.Default.Lock,
+                        activeColor = ShieldTeal,
+                        onClick = onNavigateToSetup
+                    )
+                }
+            }
+        }
+
+        // Quick Lockdown Actions Card
+        item(key = "lockdown_actions_card") {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("lockdown_actions_card"),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "System Anti-Bypass Policies",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = TextPrimaryDark
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Lock uninstallation, Safe Mode, and Always-On VPN atomically via DevicePolicyManager.",
+                        fontSize = 12.sp,
+                        color = TextSecondaryDark
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Release", fontSize = 12.sp, color = TextPrimaryDark)
+                        Button(
+                            onClick = onApplyLockdown,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("dashboard_apply_policies"),
+                            colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Enforce Lockdown", fontSize = 12.sp, color = Color.White)
+                        }
+
+                        OutlinedButton(
+                            onClick = onReleaseLockdown,
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("dashboard_release_policies"),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Release", fontSize = 12.sp, color = TextPrimaryDark)
+                        }
                     }
                 }
             }
         }
 
         // Recent Activity Feed
-        Text(
-            text = "LIVE SECURITY ACTIVITY",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            color = TextSecondaryDark,
-            letterSpacing = 1.sp
-        )
+        item(key = "recent_activity_section") {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "LIVE SECURITY ACTIVITY",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextSecondaryDark,
+                    letterSpacing = 1.sp
+                )
 
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("recent_activity_card"),
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("recent_activity_card"),
             shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
             border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
@@ -717,64 +726,67 @@ fun DashboardScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                     }
+                    }
                 }
+            }
             }
         }
 
         // Release Channel & Updates Footer Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
-            border = CardDefaults.outlinedCardBorder().copy(
-                brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark)
-            )
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+        item(key = "release_channel_footer") {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark)
+                )
             ) {
-                Column {
-                    Text(
-                        text = "ZevBlock Release Channel",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        color = TextPrimaryDark
-                    )
-                    Text(
-                        text = "Version: v${AppUpdateManager.getInstalledVersionName(context)} • GitHub Stable",
-                        fontSize = 11.sp,
-                        color = ShieldTeal
-                    )
-                }
-
-                Button(
-                    onClick = {
-                        scope.launch {
-                            val result = AppUpdateManager.checkForUpdate(context)
-                            if (result is UpdateStatus.UpToDate) {
-                                Toast.makeText(context, "ZevBlock is up to date!", Toast.LENGTH_SHORT).show()
-                            } else if (result is UpdateStatus.Error) {
-                                Toast.makeText(context, "Update check: ${result.message}", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ShieldNavyDark),
-                    shape = RoundedCornerShape(8.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    if (updateStatus is UpdateStatus.Checking) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = ShieldTeal, strokeWidth = 2.dp)
-                    } else {
-                        Text("Check Updates", fontSize = 11.sp, color = ShieldTeal)
+                    Column {
+                        Text(
+                            text = "ZevBlock Release Channel",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            color = TextPrimaryDark
+                        )
+                        Text(
+                            text = "Version: v${AppUpdateManager.getInstalledVersionName(context)} • GitHub Stable",
+                            fontSize = 11.sp,
+                            color = ShieldTeal
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val result = AppUpdateManager.checkForUpdate(context)
+                                if (result is UpdateStatus.UpToDate) {
+                                    Toast.makeText(context, "ZevBlock is up to date!", Toast.LENGTH_SHORT).show()
+                                } else if (result is UpdateStatus.Error) {
+                                    Toast.makeText(context, "Update check: ${result.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ShieldNavyDark),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (updateStatus is UpdateStatus.Checking) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = ShieldTeal, strokeWidth = 2.dp)
+                        } else {
+                            Text("Check Updates", fontSize = 11.sp, color = ShieldTeal)
+                        }
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(20.dp))
         }
-
-        Spacer(modifier = Modifier.height(20.dp))
     }
 }
 

@@ -90,6 +90,7 @@ import androidx.compose.material.icons.filled.Tune
 import com.zevbuild.zevblock.accessibility.ShieldAccessibilityService
 import com.zevbuild.zevblock.core.accessibility.NsfwContentDetector
 import com.zevbuild.zevblock.core.admin.DeviceAdminManager
+import com.zevbuild.zevblock.core.diagnostics.CrashGuardManager
 import com.zevbuild.zevblock.core.rules.CustomShieldRuleManager
 import com.zevbuild.zevblock.core.security.TamperLockManager
 import com.zevbuild.zevblock.core.stats.ProtectionStatsManager
@@ -113,7 +114,10 @@ import com.zevbuild.zevblock.ui.theme.TextMutedDark
 import com.zevbuild.zevblock.ui.theme.TextPrimaryDark
 import com.zevbuild.zevblock.ui.theme.TextSecondaryDark
 import com.zevbuild.zevblock.vpn.DnsBlockerVpnService
+import android.os.SystemClock
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -121,6 +125,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var tamperLockManager: TamperLockManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val launchStartRealtime = SystemClock.elapsedRealtime()
+        CrashGuardManager.install(this)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
@@ -131,7 +137,8 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme {
                 ShieldGuardApp(
                     deviceAdminManager = deviceAdminManager,
-                    tamperLockManager = tamperLockManager
+                    tamperLockManager = tamperLockManager,
+                    launchStartRealtime = launchStartRealtime
                 )
             }
         }
@@ -142,7 +149,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun ShieldGuardApp(
     deviceAdminManager: DeviceAdminManager,
-    tamperLockManager: TamperLockManager
+    tamperLockManager: TamperLockManager,
+    launchStartRealtime: Long = SystemClock.elapsedRealtime()
 ) {
     val context = LocalContext.current
     val appPrefs = remember { context.getSharedPreferences("zevblock_app_prefs", Context.MODE_PRIVATE) }
@@ -162,14 +170,14 @@ fun ShieldGuardApp(
     val isAccessibilityActive by ShieldAccessibilityService.isServiceActive.collectAsState()
     val recentDnsLogs by DnsBlockerVpnService.recentLogs.collectAsState()
     val recentAccessibilityLogs by ShieldAccessibilityService.recentEvents.collectAsState()
-    var ruleCount by remember { mutableStateOf(DnsBlockerVpnService.blocklistMatcher.getRuleCount()) }
+    var ruleCount by remember { mutableIntStateOf(DnsBlockerVpnService.blocklistMatcher.getRuleCount()) }
 
     val customRuleManager = remember {
         CustomShieldRuleManager(
             context = context,
             tamperLockManager = tamperLockManager,
             blocklistMatcher = DnsBlockerVpnService.blocklistMatcher,
-            nsfwContentDetector = NsfwContentDetector()
+            nsfwContentDetector = NsfwContentDetector.shared
         )
     }
 
@@ -184,6 +192,19 @@ fun ShieldGuardApp(
         DnsBlockerVpnService.statsManager = statsManager
         ShieldAccessibilityService.statsManager = statsManager
         ShieldAccessibilityService.customRuleManager = customRuleManager
+        CrashGuardManager.recordStartupComplete(launchStartRealtime)
+
+        // Warm up regex & background state off the main UI thread
+        withContext(Dispatchers.Default) {
+            runCatching {
+                NsfwContentDetector.shared.isBuiltInKeyword("porn")
+                statsManager.refreshStats()
+                customRuleManager.refreshPendingRemovals()
+            }.onFailure { t ->
+                CrashGuardManager.recordHandledException("MainActivity.warmup", t, autoRecovered = true)
+            }
+        }
+        ruleCount = DnsBlockerVpnService.blocklistMatcher.getRuleCount()
     }
 
     // VPN launcher
@@ -199,15 +220,20 @@ fun ShieldGuardApp(
     }
 
     fun launchVpn() {
-        if (isVpnRunning) {
-            DnsBlockerVpnService.stop(context)
-        } else {
-            val prepareIntent = VpnService.prepare(context)
-            if (prepareIntent != null) {
-                vpnPrepareLauncher.launch(prepareIntent)
+        try {
+            if (isVpnRunning) {
+                DnsBlockerVpnService.stop(context)
             } else {
-                DnsBlockerVpnService.start(context)
+                val prepareIntent = VpnService.prepare(context)
+                if (prepareIntent != null) {
+                    vpnPrepareLauncher.launch(prepareIntent)
+                } else {
+                    DnsBlockerVpnService.start(context)
+                }
             }
+        } catch (t: Throwable) {
+            CrashGuardManager.recordHandledException("MainActivity.launchVpn", t, autoRecovered = true)
+            Toast.makeText(context, "Could not launch VPN: ${t.localizedMessage ?: "error"}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -230,14 +256,18 @@ fun ShieldGuardApp(
     }
 
     fun refreshAll() {
-        status = deviceAdminManager.getStatus()
-        cooldownRemainingMs = tamperLockManager.getRemainingCooldownMs()
-        isCooldownActive = tamperLockManager.isCooldownActive()
-        isBypassActive = tamperLockManager.isBypassActive()
-        bypassRemainingMs = tamperLockManager.getRemainingBypassMs()
-        ruleCount = DnsBlockerVpnService.blocklistMatcher.getRuleCount()
-        statsManager.refreshStats()
-        customRuleManager.refreshPendingRemovals()
+        try {
+            status = deviceAdminManager.getStatus()
+            cooldownRemainingMs = tamperLockManager.getRemainingCooldownMs()
+            isCooldownActive = tamperLockManager.isCooldownActive()
+            isBypassActive = tamperLockManager.isBypassActive()
+            bypassRemainingMs = tamperLockManager.getRemainingBypassMs()
+            ruleCount = DnsBlockerVpnService.blocklistMatcher.getRuleCount()
+            statsManager.refreshStats()
+            customRuleManager.refreshPendingRemovals()
+        } catch (t: Throwable) {
+            CrashGuardManager.recordHandledException("MainActivity.refreshAll", t, autoRecovered = true)
+        }
     }
 
     if (showPurposeDisclaimer) {
@@ -278,7 +308,7 @@ fun ShieldGuardApp(
                                     1 -> "Custom Rules & Keywords"
                                     2 -> "Accountability Partner Lock"
                                     3 -> "Permissions & Setup Guide"
-                                    else -> "Interactive Rule Testers"
+                                    else -> "Crash Guard & Rule Testers"
                                 },
                                 fontSize = 11.sp,
                                 color = ShieldTeal
@@ -501,21 +531,28 @@ fun ShieldGuardApp(
 }
 
 /**
- * Developer & Simulation tools for validating DNS sinkhole and browser scraper evaluations.
+ * Developer, Crash Guard & Simulation tools for validating DNS sinkhole,
+ * startup performance, auto-recovery diagnostics, and browser scraper evaluations.
  */
 @Composable
 fun ToolsSimulatorScreen(
     onTestOverlay: () -> Unit,
     onViewPurposeMission: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val scrollState = rememberScrollState()
+
+    val diagnostics by CrashGuardManager.diagnosticLogs.collectAsState()
+    val startupDurationMs by CrashGuardManager.lastStartupDurationMs.collectAsState()
+    val autoRecoveredCount by CrashGuardManager.autoRecoveryCount.collectAsState()
+    var memorySummary by remember { mutableStateOf(CrashGuardManager.getMemorySummaryMb()) }
 
     var domainInput by remember { mutableStateOf("www.google.com") }
     var domainResult by remember { mutableStateOf<String?>(null) }
     var scraperInput by remember { mutableStateOf("https://www.google.com/search?q=free+xxx+video") }
     var scraperResult by remember { mutableStateOf<String?>(null) }
 
-    val nsfwDetector = remember { NsfwContentDetector() }
+    val nsfwDetector = remember { NsfwContentDetector.shared }
 
     Column(
         modifier = Modifier
@@ -524,6 +561,224 @@ fun ToolsSimulatorScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Crash Guard & Performance Diagnostics Card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("crash_guard_diagnostics_card"),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
+            border = CardDefaults.outlinedCardBorder().copy(
+                brush = androidx.compose.ui.graphics.SolidColor(
+                    if (diagnostics.isEmpty()) ShieldGreen.copy(alpha = 0.5f) else ShieldAmber
+                )
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Crash Guard & Performance Diagnostics",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Silent service auto-recovery & cold-launch speed telemetry",
+                            fontSize = 11.sp,
+                            color = TextSecondaryDark
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ShieldGreen.copy(alpha = 0.15f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "PROTECTED",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = ShieldGreen
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Key Performance & Recovery Metrics Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ShieldNavyDark)
+                            .padding(10.dp)
+                    ) {
+                        Column {
+                            Text("LAUNCH SPEED", fontSize = 9.sp, color = TextSecondaryDark, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "${startupDurationMs}ms",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = ShieldGreen
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ShieldNavyDark)
+                            .padding(10.dp)
+                    ) {
+                        Column {
+                            Text("AUTO-RECOVERED", fontSize = 9.sp, color = TextSecondaryDark, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "$autoRecoveredCount events",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = ShieldTeal
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Heap Memory: $memorySummary",
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextSecondaryDark
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (diagnostics.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ShieldNavyDark)
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = "[OK] All services healthy. Zero crashes or unhandled exceptions recorded.",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = ShieldGreen
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(ShieldNavyDark)
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        diagnostics.take(5).forEach { entry ->
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = if (entry.autoRecovered) "[RECOVERED] ${entry.source}" else "[CRASH] ${entry.source}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = if (entry.autoRecovered) ShieldTeal else ShieldRed
+                                    )
+                                    Text(
+                                        text = entry.timestampFormatted,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = TextMutedDark
+                                    )
+                                }
+                                Text(
+                                    text = entry.summary,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = TextPrimaryDark
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            CrashGuardManager.recordServiceRecovery(
+                                source = "Self-Heal Verification",
+                                detail = "Simulated background exception caught & recovered without crash"
+                            )
+                            memorySummary = CrashGuardManager.getMemorySummaryMb()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("crash_guard_simulate_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = ShieldTeal),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Test Guard", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = ShieldNavyDark)
+                    }
+
+                    Button(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            val report = CrashGuardManager.buildDiagnosticReport()
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("ZevBlock Diagnostics", report))
+                            Toast.makeText(context, "Diagnostic report copied", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("crash_guard_copy_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Copy Report", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
+                    }
+
+                    if (diagnostics.isNotEmpty()) {
+                        Button(
+                            onClick = {
+                                CrashGuardManager.clearLogs()
+                                memorySummary = CrashGuardManager.getMemorySummaryMb()
+                            },
+                            modifier = Modifier.testTag("crash_guard_clear_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = ShieldRed),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Clear", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+
         // Protection Purpose Mission Card
         Card(
             modifier = Modifier.fillMaxWidth(),

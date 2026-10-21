@@ -18,6 +18,7 @@ import androidx.core.app.NotificationCompat
 import com.zevbuild.zevblock.core.accessibility.BrowserUrlExtractor
 import com.zevbuild.zevblock.core.accessibility.NsfwContentDetector
 import com.zevbuild.zevblock.core.accessibility.SettingsTamperGuard
+import com.zevbuild.zevblock.core.diagnostics.CrashGuardManager
 import com.zevbuild.zevblock.core.security.TamperLockManager
 import com.zevbuild.zevblock.ui.overlay.OverlayManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,7 +39,8 @@ import java.util.concurrent.atomic.AtomicLong
 class ShieldAccessibilityService : AccessibilityService() {
 
     private val browserUrlExtractor = BrowserUrlExtractor()
-    private val nsfwContentDetector = NsfwContentDetector()
+    private val nsfwContentDetector: NsfwContentDetector
+        get() = NsfwContentDetector.shared
     private val settingsTamperGuard = SettingsTamperGuard()
     private var lastChatWarningTime = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -74,49 +76,57 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         // Keep the messaging-app typing check immediate (it is cheap)
         if (isNsfwFilterEnabled && isMessagingApp(packageName)) {
-            val isBypassActive = TamperLockManager.isBypassActive(this)
-            val eventTexts = event.text
-            if (!eventTexts.isNullOrEmpty()) {
-                for (charSeq in eventTexts) {
-                    val typed = charSeq?.toString()
-                    if (!typed.isNullOrBlank()) {
-                        val nsfwResult = nsfwContentDetector.analyze(typed)
-                        val shouldWarn = if (isBypassActive) nsfwResult.category != "Custom Blocked Keyword" else true
-                        if (nsfwResult.isNsfw && shouldWarn) {
-                            Log.w(TAG, "Vulgar keyword in $packageName typing event: '${nsfwResult.matchedTerm}'")
-                            showChatWarning(nsfwResult.matchedTerm ?: "explicit keyword", packageName)
-                            val chatCount = _chatWarnings.incrementAndGet()
-                            chatWarningsCount.value = chatCount
-                            val nsfwCount = _nsfwBlocks.incrementAndGet()
-                            nsfwBlocksCount.value = nsfwCount
-                            logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${nsfwResult.matchedTerm}")
-                            statsManager?.recordChatWarning()
-                            return
+            try {
+                val isBypassActive = TamperLockManager.isBypassActive(this)
+                val eventTexts = event.text
+                if (!eventTexts.isNullOrEmpty()) {
+                    for (charSeq in eventTexts) {
+                        val typed = charSeq?.toString()
+                        if (!typed.isNullOrBlank()) {
+                            val nsfwResult = nsfwContentDetector.analyze(typed)
+                            val shouldWarn = if (isBypassActive) nsfwResult.category != "Custom Blocked Keyword" else true
+                            if (nsfwResult.isNsfw && shouldWarn) {
+                                Log.w(TAG, "Vulgar keyword in $packageName typing event: '${nsfwResult.matchedTerm}'")
+                                showChatWarning(nsfwResult.matchedTerm ?: "explicit keyword", packageName)
+                                val chatCount = _chatWarnings.incrementAndGet()
+                                chatWarningsCount.value = chatCount
+                                val nsfwCount = _nsfwBlocks.incrementAndGet()
+                                nsfwBlocksCount.value = nsfwCount
+                                logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${nsfwResult.matchedTerm}")
+                                statsManager?.recordChatWarning()
+                                return
+                            }
                         }
                     }
                 }
-            }
 
-            val sourceNode = event.source
-            if (sourceNode != null && !sourceNode.isPassword) {
-                val sourceText = sourceNode.text?.toString()
-                if (!sourceText.isNullOrBlank()) {
-                    val nsfwResult = nsfwContentDetector.analyze(sourceText)
-                    val shouldWarn = if (isBypassActive) nsfwResult.category != "Custom Blocked Keyword" else true
-                    if (nsfwResult.isNsfw && shouldWarn) {
-                        Log.w(TAG, "Vulgar keyword in $packageName source node: '${nsfwResult.matchedTerm}'")
-                        showChatWarning(nsfwResult.matchedTerm ?: "explicit keyword", packageName)
-                        val chatCount = _chatWarnings.incrementAndGet()
-                        chatWarningsCount.value = chatCount
-                        val nsfwCount = _nsfwBlocks.incrementAndGet()
-                        nsfwBlocksCount.value = nsfwCount
-                        logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${nsfwResult.matchedTerm}")
-                        statsManager?.recordChatWarning()
-                        sourceNode.recycle()
-                        return
+                val sourceNode = event.source
+                if (sourceNode != null) {
+                    try {
+                        if (!sourceNode.isPassword) {
+                            val sourceText = sourceNode.text?.toString()
+                            if (!sourceText.isNullOrBlank()) {
+                                val nsfwResult = nsfwContentDetector.analyze(sourceText)
+                                val shouldWarn = if (isBypassActive) nsfwResult.category != "Custom Blocked Keyword" else true
+                                if (nsfwResult.isNsfw && shouldWarn) {
+                                    Log.w(TAG, "Vulgar keyword in $packageName source node: '${nsfwResult.matchedTerm}'")
+                                    showChatWarning(nsfwResult.matchedTerm ?: "explicit keyword", packageName)
+                                    val chatCount = _chatWarnings.incrementAndGet()
+                                    chatWarningsCount.value = chatCount
+                                    val nsfwCount = _nsfwBlocks.incrementAndGet()
+                                    nsfwBlocksCount.value = nsfwCount
+                                    logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${nsfwResult.matchedTerm}")
+                                    statsManager?.recordChatWarning()
+                                    return
+                                }
+                            }
+                        }
+                    } finally {
+                        safeRecycle(sourceNode)
                     }
                 }
-                sourceNode.recycle()
+            } catch (t: Throwable) {
+                CrashGuardManager.recordHandledException("ShieldAccessibilityService.onEvent", t, autoRecovered = true)
             }
         }
 
@@ -150,7 +160,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                         message = "Private and Incognito browsing is strictly prohibited under ZevBlock system safeguards.",
                         detail = "Package: $packageName"
                     )
-                    rootNode?.recycle()
+                    safeRecycle(rootNode)
                     return
                 }
 
@@ -176,7 +186,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                             message = "Adult content, explicit keyword, or search query detected: '${nsfwResult.matchedTerm}'.",
                             detail = extractedUrl
                         )
-                        rootNode?.recycle()
+                        safeRecycle(rootNode)
                         return
                     }
                 }
@@ -200,7 +210,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                         message = tamperEvent.reason,
                         detail = tamperEvent.target
                     )
-                    rootNode?.recycle()
+                    safeRecycle(rootNode)
                     return
                 }
             }
@@ -229,7 +239,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                         nsfwBlocksCount.value = nsfwCount
                         logEvent(packageName, "Vulgar Word Warning (Chat)", "Matched: ${windowNsfw.matchedTerm}")
                         statsManager?.recordChatWarning()
-                        rootNode?.recycle()
+                        safeRecycle(rootNode)
                         return
                     }
                 } else {
@@ -255,7 +265,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                                 message = "System-level adult content filter intercepted explicit URL: '${nsfwResult.matchedTerm}'.",
                                 detail = extractedUrl
                             )
-                            rootNode?.recycle()
+                            safeRecycle(rootNode)
                             return
                         }
                     } else {
@@ -277,16 +287,26 @@ class ShieldAccessibilityService : AccessibilityService() {
                                 message = "System safeguard intercepted explicit adult material on screen: '${windowNsfw.matchedTerm}'.",
                                 detail = "App: $packageName"
                             )
-                            rootNode?.recycle()
+                            safeRecycle(rootNode)
                             return
                         }
                     }
                 }
             }
 
-            rootNode?.recycle()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in accessibility event processing", e)
+            safeRecycle(rootNode)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error in accessibility event processing", t)
+            CrashGuardManager.recordHandledException("ShieldAccessibilityService.scanWindow", t, autoRecovered = true)
+        }
+    }
+
+    private fun safeRecycle(node: AccessibilityNodeInfo?) {
+        if (node == null) return
+        try {
+            @Suppress("DEPRECATION")
+            node.recycle()
+        } catch (_: Throwable) {
         }
     }
 
@@ -298,7 +318,7 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     private fun inspectWindowForNsfw(node: AccessibilityNodeInfo?, depth: Int): com.zevbuild.zevblock.core.accessibility.NsfwDetectionResult? {
-        if (node == null || depth > 16) return null
+        if (node == null || depth > 12) return null
         if (node.isPassword) return null
 
         val text = node.text?.toString()
@@ -313,10 +333,11 @@ class ShieldAccessibilityService : AccessibilityService() {
             if (res.isNsfw) return res
         }
 
-        for (i in 0 until node.childCount) {
+        val count = node.childCount.coerceAtMost(24)
+        for (i in 0 until count) {
             val child = node.getChild(i) ?: continue
             val found = inspectWindowForNsfw(child, depth + 1)
-            child.recycle()
+            safeRecycle(child)
             if (found != null) return found
         }
 

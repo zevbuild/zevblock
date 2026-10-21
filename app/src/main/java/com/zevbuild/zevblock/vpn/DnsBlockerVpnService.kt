@@ -16,6 +16,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.zevbuild.zevblock.MainActivity
+import com.zevbuild.zevblock.core.diagnostics.CrashGuardManager
 import com.zevbuild.zevblock.core.dns.DnsLogEntry
 import com.zevbuild.zevblock.core.dns.DnsPacketBuilder
 import com.zevbuild.zevblock.core.dns.DnsPacketParser
@@ -26,6 +27,7 @@ import com.zevbuild.zevblock.core.security.TamperLockManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,43 +60,66 @@ open class DnsBlockerVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var serviceJob: Job? = null
     private var telemetryJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CrashGuardManager.coroutineExceptionHandler("DnsBlockerVpnService")
+    )
     private val upstreamSemaphore = Semaphore(32)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
         Log.i(TAG, "DnsBlockerVpnService received action: $action")
 
-        when (action) {
-            ACTION_START -> startVpn()
-            ACTION_STOP -> stopVpn()
+        return when (action) {
+            ACTION_STOP -> {
+                stopVpn()
+                START_NOT_STICKY
+            }
+            else -> {
+                val started = startVpn()
+                if (started) START_STICKY else START_NOT_STICKY
+            }
         }
-        return START_STICKY
     }
 
-    private fun startVpn() {
-        if (_isRunning.value) {
-            Log.w(TAG, "VPN is already running.")
-            return
+    private fun startVpn(): Boolean {
+        // Always satisfy the Android O+ startForegroundService() 5-second contract first,
+        // even if the service is already running, to prevent ForegroundServiceDidNotStartInTimeException.
+        try {
+            val initialNotification = buildNotification(
+                titleText = "ZevBlock • ↓ ${formatSpeed(_downloadSpeedBps.value)}  ↑ ${formatSpeed(_uploadSpeedBps.value)}",
+                statusText = if (_isRunning.value) "DNS Sinkhole & Speed Monitor Active" else "Starting DNS Sinkhole & Speed Monitor...",
+                bigText = "Local DNS sinkhole (10.254.1.1) and real-time network speed telemetry active."
+            )
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    initialNotification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, initialNotification)
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to promote DnsBlockerVpnService to foreground", t)
+            CrashGuardManager.recordHandledException("DnsBlockerVpnService.startForeground", t, autoRecovered = true)
+            stopSelf()
+            return false
         }
 
-        val initialNotification = buildNotification(
-            titleText = "ZevBlock • ↓ 0 B/s  ↑ 0 B/s",
-            statusText = "Starting DNS Sinkhole & Speed Monitor...",
-            bigText = "Initializing local DNS sinkhole (10.254.1.1) and real-time network speed telemetry..."
-        )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                initialNotification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, initialNotification)
+        if (_isRunning.value && vpnInterface != null) {
+            Log.i(TAG, "VPN is already running; foreground state refreshed.")
+            return true
         }
 
         try {
+            if (prepare(this) != null) {
+                Log.w(TAG, "VPN consent not granted yet; stopping foreground service cleanly.")
+                CrashGuardManager.recordServiceRecovery("DnsBlockerVpnService", "Stopped unpermitted background VPN start safely.")
+                stopVpn()
+                return false
+            }
+
             val builder = Builder()
                 .setSession("ZevBlock DNS Sinkhole")
                 .setMtu(1500)
@@ -133,24 +158,29 @@ open class DnsBlockerVpnService : VpnService() {
 
             if (vpnInterface == null) {
                 Log.e(TAG, "Failed to establish VPN TUN interface.")
-                stopSelf()
-                return
+                stopVpn()
+                return false
             }
 
             _isRunning.value = true
 
+            serviceJob?.cancel()
             serviceJob = scope.launch {
                 runPacketLoop(vpnInterface!!)
             }
 
+            telemetryJob?.cancel()
             telemetryJob = scope.launch {
                 runTrafficAndNotificationLoop()
             }
 
             Log.i(TAG, "ZevBlock DNS Sinkhole successfully established.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Fatal error establishing VPN", e)
+            return true
+        } catch (t: Throwable) {
+            Log.e(TAG, "Fatal error establishing VPN", t)
+            CrashGuardManager.recordHandledException("DnsBlockerVpnService.establish", t, autoRecovered = true)
             stopVpn()
+            return false
         }
     }
 
@@ -428,7 +458,11 @@ open class DnsBlockerVpnService : VpnService() {
     }
 
     private fun stopVpn() {
-        statsManager?.flushDnsCounters()
+        try {
+            statsManager?.flushDnsCounters()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error flushing DNS counters on stop", e)
+        }
         Log.i(TAG, "Stopping ShieldGuard DNS Sinkhole...")
         _isRunning.value = false
         _downloadSpeedBps.value = 0L
@@ -448,8 +482,16 @@ open class DnsBlockerVpnService : VpnService() {
             Log.e(TAG, "Error closing VPN interface", e)
         }
 
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (e: Exception) {
+            Log.w(TAG, "stopForeground exception ignored", e)
+        }
+        try {
+            stopSelf()
+        } catch (e: Exception) {
+            Log.w(TAG, "stopSelf exception ignored", e)
+        }
     }
 
     override fun onDestroy() {
@@ -500,8 +542,12 @@ open class DnsBlockerVpnService : VpnService() {
     }
 
     private fun updateNotification(titleText: String, statusText: String, bigText: String? = null) {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIFICATION_ID, buildNotification(titleText, statusText, bigText))
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            nm.notify(NOTIFICATION_ID, buildNotification(titleText, statusText, bigText))
+        } catch (e: Exception) {
+            Log.w(TAG, "Notification update skipped: ${e.message}")
+        }
     }
 
     private fun createNotificationChannel() {
@@ -689,21 +735,38 @@ open class DnsBlockerVpnService : VpnService() {
         }
 
         fun start(context: Context) {
-            val intent = Intent(context, DnsBlockerVpnService::class.java).apply {
-                action = ACTION_START
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (prepare(context) != null) {
+                    Log.w(TAG, "Cannot start DnsBlockerVpnService: VPN consent not granted.")
+                    return
+                }
+                val intent = Intent(context, DnsBlockerVpnService::class.java).apply {
+                    action = ACTION_START
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error starting DnsBlockerVpnService", t)
+                CrashGuardManager.recordHandledException("DnsBlockerVpnService.start", t, autoRecovered = true)
             }
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, DnsBlockerVpnService::class.java).apply {
-                action = ACTION_STOP
+            try {
+                val intent = Intent(context, DnsBlockerVpnService::class.java).apply {
+                    action = ACTION_STOP
+                }
+                context.startService(intent)
+            } catch (t: Throwable) {
+                try {
+                    context.stopService(Intent(context, DnsBlockerVpnService::class.java))
+                } catch (ignored: Throwable) {
+                }
+                CrashGuardManager.recordHandledException("DnsBlockerVpnService.stop", t, autoRecovered = true)
             }
-            context.startService(intent)
         }
     }
 }

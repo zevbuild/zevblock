@@ -240,6 +240,54 @@ class ZevBlockCoreTest {
     }
 
     // =========================================================================
+    // 7. CrashGuardManager & Telemetry Speed Formatting Tests
+    // =========================================================================
+    @Test
+    fun crashGuardManager_recordsAndRecoversExceptionsSafely() {
+        val guard = com.zevbuild.zevblock.core.diagnostics.CrashGuardManager
+        guard.clearLogs()
+        assertEquals(0, guard.diagnosticLogs.value.size)
+
+        guard.recordHandledException(
+            source = "DnsBlockerVpnService.test",
+            throwable = IllegalStateException("Simulated socket timeout"),
+            autoRecovered = true
+        )
+        guard.recordServiceRecovery(
+            source = "BootCompletedReceiver",
+            detail = "Skipped unpermitted background VPN start"
+        )
+
+        assertEquals(2, guard.diagnosticLogs.value.size)
+        assertEquals(2, guard.autoRecoveryCount.value)
+        val report = guard.buildDiagnosticReport()
+        assertTrue(report.contains("Simulated socket timeout"))
+        assertTrue(report.contains("BootCompletedReceiver"))
+
+        guard.clearLogs()
+        assertEquals(0, guard.diagnosticLogs.value.size)
+    }
+
+    @Test
+    fun dnsBlockerVpnService_formatsSpeedsAndSimulatesTelemetry() {
+        val vpn = com.zevbuild.zevblock.vpn.DnsBlockerVpnService
+        assertEquals("0 B/s", vpn.formatSpeed(0L))
+        assertEquals("512 B/s", vpn.formatSpeed(512L))
+        assertTrue(vpn.formatSpeed(2048L).contains("KB/s"))
+        assertTrue(vpn.formatBytes(5 * 1024 * 1024L).contains("MB"))
+
+        val beforeCount = vpn.totalQueriesCount.value
+        val blockedEntry = vpn.simulateDnsPipelineLookup("pornhub.com")
+        val safeEntry = vpn.simulateDnsPipelineLookup("www.google.com")
+        val allowedEntry = vpn.simulateDnsPipelineLookup("wikipedia.org")
+        assertTrue(blockedEntry.isBlocked)
+        assertTrue(safeEntry.isSafeSearchRewritten)
+        assertFalse(allowedEntry.isBlocked)
+        assertTrue(vpn.totalQueriesCount.value >= beforeCount + 3)
+        assertTrue(vpn.recentLogs.value.isNotEmpty())
+    }
+
+    // =========================================================================
     // Helper Methods
     // =========================================================================
     private fun createSampleDnsQuery(domain: String): ByteArray {

@@ -54,6 +54,14 @@ object AppUpdateManager {
     val updateStatus: StateFlow<UpdateStatus> = _updateStatus.asStateFlow()
 
     private var activeDownloadId: Long = -1L
+    @Volatile
+    private var sessionUpdateChecked: Boolean = false
+
+    suspend fun checkForUpdateOncePerSession(context: Context) {
+        if (sessionUpdateChecked) return
+        sessionUpdateChecked = true
+        checkForUpdate(context)
+    }
 
     /**
      * Checks GitHub Releases API for the latest published release.
