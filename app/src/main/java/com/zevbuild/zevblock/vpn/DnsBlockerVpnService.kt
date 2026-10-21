@@ -81,6 +81,15 @@ open class DnsBlockerVpnService : VpnService() {
         }
     }
 
+    private fun ensureDependencies() {
+        if (statsManager == null) {
+            statsManager = com.zevbuild.zevblock.core.stats.ProtectionStatsManager(
+                applicationContext,
+                TamperLockManager(applicationContext)
+            )
+        }
+    }
+
     private fun startVpn(): Boolean {
         // Always satisfy the Android O+ startForegroundService() 5-second contract first,
         // even if the service is already running, to prevent ForegroundServiceDidNotStartInTimeException.
@@ -106,6 +115,8 @@ open class DnsBlockerVpnService : VpnService() {
             stopSelf()
             return false
         }
+
+        ensureDependencies()
 
         if (_isRunning.value && vpnInterface != null) {
             Log.i(TAG, "VPN is already running; foreground state refreshed.")
@@ -234,7 +245,7 @@ open class DnsBlockerVpnService : VpnService() {
             _appUploadSpeedBps.value = appUlSpeed
 
             // Persist daily download/upload totals
-            val todayKey = dayFormatter.format(Date())
+            val todayKey = dayFormatter.format(System.currentTimeMillis())
             val savedDay = trafficPrefs.getString("current_day", "")
             var dayDl = if (savedDay == todayKey) trafficPrefs.getLong("day_dl_bytes", 0L) else 0L
             var dayUl = if (savedDay == todayKey) trafficPrefs.getLong("day_ul_bytes", 0L) else 0L

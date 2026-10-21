@@ -51,8 +51,27 @@ class ShieldAccessibilityService : AccessibilityService() {
         scanWindow(pkg)
     }
 
+    private fun ensureDependencies() {
+        val tamperLockManager = TamperLockManager(applicationContext)
+        if (statsManager == null) {
+            statsManager = com.zevbuild.zevblock.core.stats.ProtectionStatsManager(
+                applicationContext,
+                tamperLockManager
+            )
+        }
+        if (customRuleManager == null) {
+            customRuleManager = com.zevbuild.zevblock.core.rules.CustomShieldRuleManager(
+                applicationContext,
+                tamperLockManager,
+                com.zevbuild.zevblock.vpn.DnsBlockerVpnService.blocklistMatcher,
+                nsfwContentDetector
+            )
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        ensureDependencies()
         _isServiceActive.value = true
         Log.i(TAG, "ShieldAccessibilityService successfully connected and active.")
     }
@@ -64,6 +83,8 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         // Skip exempt packages at the top of onAccessibilityEvent
         if (isExemptPackage(packageName)) return
+
+        ensureDependencies()
 
         // Call nsfwContentDetector.setCustomKeywords() only when the keyword set actually changed
         customRuleManager?.let {
