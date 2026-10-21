@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.dns
+package com.zevbuild.zevblock.core.dns
 
 import java.io.ByteArrayOutputStream
 import java.net.InetAddress
@@ -94,7 +94,7 @@ object DnsPacketBuilder {
         out.write(0x00); out.write(0x00) // NSCOUNT = 0
         out.write(0x00); out.write(0x00) // ARCOUNT = 0
 
-        // 4. Question Section (copy directly from raw query payload after 12-byte header up to questionEndOffset)
+        // 4. Question Section (copy directly from raw query payload after 12-byte header)
         val questionLen = (query.questionEndOffset - 12).coerceAtLeast(0)
         if (questionLen > 0 && query.rawQueryBytes.size >= query.questionEndOffset) {
             out.write(query.rawQueryBytes, 12, questionLen)

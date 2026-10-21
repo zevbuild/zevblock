@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.accessibility
+package com.zevbuild.zevblock.core.accessibility
 
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -122,7 +122,7 @@ class BrowserUrlExtractor {
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             val found = findUrlByHeuristic(child, depth + 1)
-            child.recycle()
+            safeRecycle(child)
             if (found != null) return found
         }
 
@@ -187,10 +187,19 @@ class BrowserUrlExtractor {
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             val found = checkNodeTextContains(child, targets, depth + 1)
-            child.recycle()
+            safeRecycle(child)
             if (found) return true
         }
 
         return false
+    }
+
+    private fun safeRecycle(node: AccessibilityNodeInfo?) {
+        if (node == null) return
+        try {
+            @Suppress("DEPRECATION")
+            node.recycle()
+        } catch (_: Throwable) {
+        }
     }
 }

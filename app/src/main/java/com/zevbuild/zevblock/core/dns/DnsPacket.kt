@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.dns
+package com.zevbuild.zevblock.core.dns
 
 /**
  * Data structures and constants representing parsed IP/UDP and DNS packets.

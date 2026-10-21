@@ -114,33 +114,33 @@ fun NetworkTelemetryWaveCard(
 
     val activeLogs = if (dnsLogs.isNotEmpty()) dnsLogs else serviceLogs
 
-    var showHowDnsWorks by remember { mutableStateOf(true) }
+    var showHowDnsWorks by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableIntStateOf(0) } // 0 = All, 1 = Blocked, 2 = SafeSearch, 3 = Allowed
 
-    // Infinite transition for continuous smooth wave scrolling
-    val infiniteTransition = rememberInfiniteTransition(label = "telemetry_wave")
-    val wavePhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = if (isVpnRunning) 2800 else 8000,
-                easing = LinearEasing
-            ),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "wave_phase"
-    )
+    val path1 = remember { Path() }
+    val pathFill = remember { Path() }
+    val path2 = remember { Path() }
 
-    val waveAmplitudeFactor by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "amplitude_pulse"
-    )
+    // Only run continuous wave animation when VPN is actively running to save battery & startup CPU
+    val wavePhase = if (isVpnRunning) {
+        val infiniteTransition = rememberInfiniteTransition(label = "telemetry_wave")
+        val phase by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = (2 * PI).toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = 3200,
+                    easing = LinearEasing
+                ),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "wave_phase"
+        )
+        phase
+    } else {
+        0f
+    }
+    val waveAmplitudeFactor = 1f
 
     Card(
         modifier = modifier
@@ -363,10 +363,11 @@ fun NetworkTelemetryWaveCard(
 
                     val baseAmp = if (isVpnRunning) (height * 0.22f) * waveAmplitudeFactor else 3f
 
-                    val path1 = Path()
-                    val pathFill = Path()
+                    path1.reset()
+                    pathFill.reset()
+                    path2.reset()
 
-                    val pointsCount = 60
+                    val pointsCount = 40
                     val dx = width / (pointsCount - 1)
 
                     path1.moveTo(0f, midY)
@@ -387,7 +388,6 @@ fun NetworkTelemetryWaveCard(
                     pathFill.lineTo(width, height)
                     pathFill.close()
 
-                    val path2 = Path()
                     path2.moveTo(0f, midY)
                     for (i in 0 until pointsCount) {
                         val x = i * dx

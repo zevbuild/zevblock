@@ -1,0 +1,13 @@
+# Cursor AI Rules for ZevBlock
+
+Before reading or modifying any files, you MUST read and follow `AGENT_RULES.md` and the `brain/` directory:
+- `brain/README.md`
+- `brain/ARCHITECTURE.md`
+- `brain/TECH_STACK.md`
+- `brain/SYSTEM_STATE.md`
+- `brain/RULES.md`
+- `brain/CHANGELOG.md`
+
+MANDATORY CHANGE LOCK:
+Every time you make any change to this repository, you MUST update `brain/CHANGELOG.md` and synchronize the corresponding file in `brain/` before concluding your response.
+See `AGENT_RULES.md` for full instructions.

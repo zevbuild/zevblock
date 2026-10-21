@@ -56,11 +56,19 @@ class NsfwContentDetector {
     private val customKeywords = HashSet<String>()
     private val customKeywordRegexCache = ConcurrentHashMap<String, Regex>()
 
-    private val precompiledRegexes: Map<String, Regex> = nsfwKeywords
-        .filter { it.length <= 5 && !it.startsWith("r/") }
-        .associateWith { Regex("""(?i)(^|[^a-z0-9])${Regex.escape(it)}([^a-z0-9]|$)""") }
+    private val precompiledRegexes: Map<String, Regex> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        nsfwKeywords
+            .filter { it.length <= 5 && !it.startsWith("r/") }
+            .associateWith { Regex("""(?i)(^|[^a-z0-9])${Regex.escape(it)}([^a-z0-9]|$)""") }
+    }
 
     var isEnabled: Boolean = true
+
+    companion object {
+        val shared: NsfwContentDetector by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+            NsfwContentDetector()
+        }
+    }
 
     fun setCustomKeywords(keywords: Collection<String>) {
         synchronized(customKeywords) {

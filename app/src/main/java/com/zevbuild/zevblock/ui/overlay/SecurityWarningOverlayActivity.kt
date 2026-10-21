@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.ui.overlay
+package com.zevbuild.zevblock.ui.overlay
 
 import android.content.Context
 import android.content.Intent
@@ -93,15 +93,23 @@ class SecurityWarningOverlayActivity : ComponentActivity() {
         const val EXTRA_DETAIL = "extra_detail"
 
         fun show(context: Context, alertType: String, message: String, detail: String = "") {
-            val intent = Intent(context, SecurityWarningOverlayActivity::class.java).apply {
-                putExtra(EXTRA_ALERT_TYPE, alertType)
-                putExtra(EXTRA_MESSAGE, message)
-                putExtra(EXTRA_DETAIL, detail)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+            try {
+                val intent = Intent(context, SecurityWarningOverlayActivity::class.java).apply {
+                    putExtra(EXTRA_ALERT_TYPE, alertType)
+                    putExtra(EXTRA_MESSAGE, message)
+                    putExtra(EXTRA_DETAIL, detail)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+                context.startActivity(intent)
+            } catch (t: Throwable) {
+                com.zevbuild.zevblock.core.diagnostics.CrashGuardManager.recordHandledException(
+                    "SecurityWarningOverlayActivity.show",
+                    t,
+                    autoRecovered = true
+                )
             }
-            context.startActivity(intent)
         }
     }
 }

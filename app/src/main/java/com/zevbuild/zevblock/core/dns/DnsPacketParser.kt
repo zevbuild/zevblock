@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.dns
+package com.zevbuild.zevblock.core.dns
 
 import android.util.Log
 import java.nio.ByteBuffer

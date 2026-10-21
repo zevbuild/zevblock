@@ -1,4 +1,4 @@
-﻿package com.zevbuild.zevblock.core.dns
+package com.zevbuild.zevblock.core.dns
 
 import android.util.Log
 import java.io.BufferedReader
@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class DomainBlocklistMatcher {
 
-    private val blockedDomains = HashSet<String>(100_000)
+    private val blockedDomains = HashSet<String>(512)
     private val allowedDomains = HashSet<String>()
     private val customRules = HashSet<String>()
 

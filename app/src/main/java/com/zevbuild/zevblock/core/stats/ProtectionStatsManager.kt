@@ -30,6 +30,7 @@ class ProtectionStatsManager(
 ) {
 
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val formatLock = Any()
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     private val dayNameFormat = SimpleDateFormat("EEE", Locale.US)
 
@@ -56,7 +57,9 @@ class ProtectionStatsManager(
     }
 
     private fun getTodayDateString(): String {
-        return dateFormat.format(Date())
+        return synchronized(formatLock) {
+            dateFormat.format(Date())
+        }
     }
 
     private fun ensureStreakInitialized() {
@@ -173,8 +176,8 @@ class ProtectionStatsManager(
         refreshStats()
     }
 
+    @Synchronized
     fun refreshStats() {
-        val calendar = Calendar.getInstance()
         val pastDaysList = mutableListOf<DayStat>()
         val todayStr = getTodayDateString()
 
@@ -182,8 +185,8 @@ class ProtectionStatsManager(
         for (i in 6 downTo 0) {
             val cal = Calendar.getInstance()
             cal.add(Calendar.DAY_OF_YEAR, -i)
-            val dateStr = dateFormat.format(cal.time)
-            val dayName = if (dateStr == todayStr) "Today" else dayNameFormat.format(cal.time)
+            val dateStr = synchronized(formatLock) { dateFormat.format(cal.time) }
+            val dayName = if (dateStr == todayStr) "Today" else synchronized(formatLock) { dayNameFormat.format(cal.time) }
 
             val rec = getDayRecord(dateStr)
             val totalBlocks = rec.dnsBlocked + rec.screenNsfwBlocked + rec.incognitoBlocked + rec.chatWarnings + rec.settingsTamperBlocked

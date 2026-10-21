@@ -113,10 +113,9 @@ fun SpringBounceBox(
 }
 
 /**
- * Rolling animated numeric counter that cascades individual digits
- * with vertical slide transitions.
+ * Lightweight, fast numeric counter that avoids spawning per-character
+ * AnimatedContent subcompositions during initial screen load.
  */
-@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun AnimatedRollingCounter(
     value: Long,
@@ -131,74 +130,18 @@ fun AnimatedRollingCounter(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (prefix.isNotEmpty()) {
-            Text(
-                text = prefix,
-                fontSize = fontSize,
-                fontWeight = fontWeight,
-                color = color
-            )
-        }
-
-        val textString = value.toString()
-        for (char in textString) {
-            AnimatedContent(
-                targetState = char,
-                transitionSpec = {
-                    if (targetState > initialState) {
-                        (slideInVertically(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
-                        ) { it } + fadeIn()).togetherWith(
-                            slideOutVertically(
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMedium
-                                )
-                            ) { -it } + fadeOut()
-                        )
-                    } else {
-                        (slideInVertically(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
-                        ) { -it } + fadeIn()).togetherWith(
-                            slideOutVertically(
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMedium
-                                )
-                            ) { it } + fadeOut()
-                        )
-                    }
-                },
-                label = "digit_roll"
-            ) { targetChar ->
-                Text(
-                    text = targetChar.toString(),
-                    fontSize = fontSize,
-                    fontWeight = fontWeight,
-                    color = color
-                )
-            }
-        }
-
-        if (suffix.isNotEmpty()) {
-            Text(
-                text = suffix,
-                fontSize = fontSize,
-                fontWeight = fontWeight,
-                color = color
-            )
-        }
+        Text(
+            text = "$prefix$value$suffix",
+            fontSize = fontSize,
+            fontWeight = fontWeight,
+            color = color
+        )
     }
 }
 
 /**
  * Pulsing radar dot for active status indicators (e.g. VPN, Active Guard).
+ * Only runs an infinite transition when `active == true` to save CPU/GPU and battery.
  */
 @Composable
 fun RadarPulseDot(
@@ -206,41 +149,45 @@ fun RadarPulseDot(
     activeColor: Color,
     inactiveColor: Color,
     size: Dp = 8.dp,
-    pulseMultiplier: Float = 2.4f
+    pulseMultiplier: Float = 2.2f
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "radar_pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (active) pulseMultiplier else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "radar_scale"
-    )
-
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = if (active) 0.7f else 0f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "radar_alpha"
-    )
-
     Box(
         modifier = Modifier.size(size * 2),
         contentAlignment = Alignment.Center
     ) {
         if (active) {
-            // Expanding wave ring
+            val infiniteTransition = rememberInfiniteTransition(label = "radar_pulse")
+            val pulseScale by infiniteTransition.animateFloat(
+                initialValue = 1f,
+                targetValue = pulseMultiplier,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1800, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "radar_scale"
+            )
+
+            val pulseAlpha by infiniteTransition.animateFloat(
+                initialValue = 0.65f,
+                targetValue = 0f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1800, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "radar_alpha"
+            )
+
+            // Expanding wave ring using graphicsLayer to avoid layout relayout on each frame
             Box(
                 modifier = Modifier
                     .size(size)
-                    .scale(pulseScale)
+                    .graphicsLayer {
+                        scaleX = pulseScale
+                        scaleY = pulseScale
+                        alpha = pulseAlpha
+                    }
                     .clip(CircleShape)
-                    .background(activeColor.copy(alpha = pulseAlpha))
+                    .background(activeColor)
             )
         }
 
