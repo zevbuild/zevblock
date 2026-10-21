@@ -64,7 +64,6 @@ jobs:
 
       - name: Run Unit & Robolectric Tests
         run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
-        continue-on-error: true
 
       - name: Package APK for Distribution
         run: |

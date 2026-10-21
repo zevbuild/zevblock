@@ -6,6 +6,7 @@ import android.os.SystemClock
 import android.util.Log
 import java.net.URLEncoder
 import java.nio.ByteBuffer
+import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -14,70 +15,192 @@ import kotlin.math.min
 
 /**
  * TamperLockManager handles:
- * 1. RFC 6238 TOTP verification for trusted accountability partner locks.
- * 2. Monotonic-clock tamper-proof cooldown timers that cannot be bypassed
- *    by winding back or forwarding the Android system date & time.
- * 3. Cryptographic integrity sealing of stored lock state.
+ * 1. RFC 6238 TOTP verification with replay protection & brute-force lockout.
+ * 2. Android Keystore-backed encryption for partner secrets and device integrity keys.
+ * 3. Monotonic-clock tamper-proof cooldown timers with constant-time HMAC validation.
+ * 4. Temporary partner-authorized bypass windows that fail closed on any integrity corruption.
  */
 class TamperLockManager(context: Context) {
 
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    init {
+        migrateLegacyPlaintextStorage()
+    }
+
     // =========================================================================
     // SECTION 1: RFC 6238 TOTP ENGINE (Accountability Partner)
     // =========================================================================
 
     /**
-     * Verifies a 6-digit candidate code against the stored friend's TOTP secret.
-     * Allows a clock skew of ±1 step (±30 seconds) to tolerate time drift.
+     * Verifies a 6-digit candidate code against the partner's TOTP secret.
+     * Features:
+     * - Replay-resistant: Rejects any code matching an already accepted time step.
+     * - Brute-force throttling: Enforces temporary lockouts after repeated failed attempts.
+     * - Clock skew tolerant: Allows ±1 step (±30s) without accepting stale steps.
+     * - Constant-time comparison: Prevents timing side-channel leaks.
+     * - Zero-leak logging: Never prints secret keys or submitted OTP codes to logcat.
      */
+    @Synchronized
     fun verifyPartnerTotp(candidateCode: String): Boolean {
-        val secret = getPartnerSecret() ?: return false
-        val cleanCode = candidateCode.trim().filter { it.isDigit() }
-        if (cleanCode.length != 6) return false
+        // Enforce strict 6-digit formatting
+        val trimmed = candidateCode.trim()
+        if (trimmed.length != 6 || !trimmed.all { it.isDigit() }) {
+            Log.w(TAG, "Partner TOTP rejected: input must be strictly 6 numeric digits.")
+            recordFailedAttempt()
+            return false
+        }
+
+        // Check if currently locked out due to excessive failed attempts
+        val lockoutRemainingMs = getLockoutRemainingMs()
+        if (lockoutRemainingMs > 0) {
+            Log.w(TAG, "Partner TOTP rejected: temporarily locked out for ${lockoutRemainingMs / 1000}s.")
+            return false
+        }
+
+        val secret = getPartnerSecret()
+        if (secret.isNullOrBlank()) {
+            Log.w(TAG, "Partner TOTP verification failed: no partner secret paired.")
+            return false
+        }
 
         val currentEpochSeconds = System.currentTimeMillis() / 1000L
         val currentStep = currentEpochSeconds / TOTP_TIME_STEP_SECONDS
+        val lastAcceptedStep = prefs.getLong(KEY_LAST_ACCEPTED_STEP, -1L)
 
-        // Check current step, preceding step, and succeeding step (±30 seconds)
-        for (stepOffset in -1L..1L) {
+        // Test step offsets in priority order: current (0), preceding (-1), succeeding (+1)
+        val candidateOffsets = listOf(0L, -1L, 1L)
+
+        for (stepOffset in candidateOffsets) {
             val step = currentStep + stepOffset
+
+            // Replay protection: Step must be strictly greater than the last consumed step
+            if (step <= lastAcceptedStep) {
+                continue
+            }
+
             val expectedCode = generateTotpCodeForStep(secret, step)
-            if (expectedCode == cleanCode) {
-                Log.i(TAG, "Partner TOTP successfully verified for step offset: $stepOffset")
+            if (isConstantTimeEqual(expectedCode, trimmed)) {
+                // Successfully authenticated! Atomically commit the consumed step and reset failed attempts
+                prefs.edit()
+                    .putLong(KEY_LAST_ACCEPTED_STEP, step)
+                    .putInt(KEY_FAILED_ATTEMPTS, 0)
+                    .putLong(KEY_LOCKOUT_UNTIL_ELAPSED, 0L)
+                    .putLong(KEY_LOCKOUT_UNTIL_WALL, 0L)
+                    .commit()
+
+                Log.i(TAG, "Partner TOTP successfully verified and step $step consumed (replay-locked).")
                 return true
             }
         }
-        Log.w(TAG, "Partner TOTP verification failed for input.")
+
+        Log.w(TAG, "Partner TOTP verification failed for input code.")
+        recordFailedAttempt()
         return false
     }
 
     /**
-     * Generates a new cryptographically secure 160-bit Base32 secret key,
-     * saves it in encrypted preferences, and returns the Base32 string.
+     * Checks if TOTP verification is currently throttled / locked out.
      */
+    @Synchronized
+    fun getLockoutRemainingMs(): Long {
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowWall = System.currentTimeMillis()
+
+        val lockoutElapsed = prefs.getLong(KEY_LOCKOUT_UNTIL_ELAPSED, 0L)
+        val lockoutWall = prefs.getLong(KEY_LOCKOUT_UNTIL_WALL, 0L)
+
+        if (lockoutElapsed <= 0L && lockoutWall <= 0L) return 0L
+
+        val remainingElapsed = max(0L, lockoutElapsed - nowElapsed)
+        val remainingWall = max(0L, lockoutWall - nowWall)
+        val remaining = max(remainingElapsed, remainingWall)
+
+        if (remaining <= 0L) {
+            // Lockout expired
+            prefs.edit()
+                .putLong(KEY_LOCKOUT_UNTIL_ELAPSED, 0L)
+                .putLong(KEY_LOCKOUT_UNTIL_WALL, 0L)
+                .apply()
+        }
+        return remaining
+    }
+
+    private fun recordFailedAttempt() {
+        val attempts = prefs.getInt(KEY_FAILED_ATTEMPTS, 0) + 1
+        val editor = prefs.edit().putInt(KEY_FAILED_ATTEMPTS, attempts)
+
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowWall = System.currentTimeMillis()
+
+        val lockoutDurationMs = when {
+            attempts >= 15 -> 15 * 60 * 1000L // 15 minutes lockout
+            attempts >= 10 -> 5 * 60 * 1000L  // 5 minutes lockout
+            attempts >= 5 -> 30 * 1000L       // 30 seconds throttle
+            else -> 0L
+        }
+
+        if (lockoutDurationMs > 0) {
+            editor.putLong(KEY_LOCKOUT_UNTIL_ELAPSED, nowElapsed + lockoutDurationMs)
+            editor.putLong(KEY_LOCKOUT_UNTIL_WALL, nowWall + lockoutDurationMs)
+            Log.w(TAG, "Repeated invalid TOTP attempts ($attempts); lockout engaged for ${lockoutDurationMs / 1000}s")
+        }
+        editor.commit()
+    }
+
+    /**
+     * Generates a new cryptographically secure 160-bit Base32 secret key,
+     * encrypts it using Android Keystore, and returns the Base32 string.
+     */
+    @Synchronized
     fun setupNewPartnerSecret(): String {
         val randomBytes = ByteArray(20) // 160 bits (recommended for SHA1 HMAC)
         SecureRandom().nextBytes(randomBytes)
         val base32Secret = Base32.encode(randomBytes)
         savePartnerSecret(base32Secret)
-        Log.i(TAG, "Generated and stored new accountability partner TOTP secret")
+        Log.i(TAG, "Generated and stored new accountability partner TOTP secret (Keystore-encrypted)")
         return base32Secret
     }
 
     /**
-     * Retrieves the active partner Base32 secret, or null if not yet paired.
+     * Retrieves the active partner Base32 secret by decrypting it from the Keystore,
+     * or returns null if not paired / decryption fails (fail closed).
      */
+    @Synchronized
     fun getPartnerSecret(): String? {
-        return prefs.getString(KEY_PARTNER_SECRET, null)
+        val encryptedPayload = prefs.getString(KEY_PARTNER_SECRET_ENCRYPTED, null)
+        if (encryptedPayload != null) {
+            val decrypted = CryptoKeyManager.decrypt(encryptedPayload)
+            if (decrypted == null) {
+                Log.e(TAG, "CRITICAL: Failed to decrypt partner secret from Keystore! Failing closed.")
+            }
+            return decrypted
+        }
+
+        // Check if legacy plaintext secret exists and migrate
+        val legacySecret = prefs.getString(KEY_PARTNER_SECRET_LEGACY, null)
+        if (!legacySecret.isNullOrBlank()) {
+            savePartnerSecret(legacySecret)
+            prefs.edit().remove(KEY_PARTNER_SECRET_LEGACY).commit()
+            return legacySecret
+        }
+        return null
     }
 
     /**
      * Clears partner pairing secret (only allowed when unlocked).
      */
+    @Synchronized
     fun clearPartnerSecret() {
-        prefs.edit().remove(KEY_PARTNER_SECRET).apply()
+        prefs.edit()
+            .remove(KEY_PARTNER_SECRET_ENCRYPTED)
+            .remove(KEY_PARTNER_SECRET_LEGACY)
+            .remove(KEY_LAST_ACCEPTED_STEP)
+            .remove(KEY_FAILED_ATTEMPTS)
+            .remove(KEY_LOCKOUT_UNTIL_ELAPSED)
+            .remove(KEY_LOCKOUT_UNTIL_WALL)
+            .commit()
     }
 
     /**
@@ -114,7 +237,11 @@ class TamperLockManager(context: Context) {
     }
 
     private fun savePartnerSecret(secret: String) {
-        prefs.edit().putString(KEY_PARTNER_SECRET, secret).apply()
+        val encrypted = CryptoKeyManager.encrypt(secret)
+        prefs.edit()
+            .putString(KEY_PARTNER_SECRET_ENCRYPTED, encrypted)
+            .remove(KEY_PARTNER_SECRET_LEGACY)
+            .commit()
     }
 
     // =========================================================================
@@ -132,13 +259,14 @@ class TamperLockManager(context: Context) {
 
         prefs.edit()
             .putBoolean(KEY_COOLDOWN_ACTIVE, true)
+            .putBoolean(KEY_COOLDOWN_COMPLETED, false)
             .putLong(KEY_COOLDOWN_DURATION, durationMs)
             .putLong(KEY_COOLDOWN_REMAINING, durationMs)
             .putLong(KEY_LAST_CHECKED_ELAPSED, nowElapsed)
             .putLong(KEY_LAST_CHECKED_WALL, nowWall)
             .putLong(KEY_COOLDOWN_START_WALL, nowWall)
             .putString(KEY_COOLDOWN_SIGNATURE, createCooldownSignature(durationMs, durationMs, nowElapsed, nowWall))
-            .apply()
+            .commit()
 
         Log.i(TAG, "Anti-tamper cooldown timer started: duration=$durationMs ms ($durationMs / 60000 min)")
     }
@@ -151,7 +279,7 @@ class TamperLockManager(context: Context) {
     fun getRemainingCooldownMs(): Long {
         if (!isCooldownActive()) return 0L
 
-        // Validate integrity signature
+        // Validate integrity signature & state bounds
         if (!verifyCooldownSignature()) {
             Log.e(TAG, "Cooldown integrity check failed! Storage tampered. Enforcing safety lock.")
             return DEFAULT_COOLDOWN_MS
@@ -166,29 +294,23 @@ class TamperLockManager(context: Context) {
 
         if (nowElapsed < lastElapsed) {
             // Monotonic clock reset indicates device was rebooted.
-            // Compare wall clock time while detecting rollbacks.
             val deltaWall = nowWall - lastWall
             if (deltaWall in 1..MAX_SANE_WALL_CLOCK_JUMP_MS) {
-                // Legitimate time passed while powered off
                 remaining = max(0L, remaining - deltaWall)
                 Log.i(TAG, "Reboot detected. Deducted $deltaWall ms of offline wall time.")
             } else if (deltaWall < 0) {
-                // Clock was rolled back! Grant zero time credit.
-                Log.w(TAG, "System clock rollback detected! (nowWall: $nowWall, lastWall: $lastWall). Zero time credited.")
+                Log.w(TAG, "System clock rollback detected! Zero time credited.")
             }
         } else {
-            // Normal operation without reboot: use monotonic elapsedRealtime
             val deltaElapsed = nowElapsed - lastElapsed
             remaining = max(0L, remaining - deltaElapsed)
         }
 
         if (remaining <= 0L) {
-            // Cooldown completed!
             markCooldownCompleted()
             return 0L
         }
 
-        // Persist updated progress and refresh signature
         val duration = prefs.getLong(KEY_COOLDOWN_DURATION, DEFAULT_COOLDOWN_MS)
         prefs.edit()
             .putLong(KEY_COOLDOWN_REMAINING, remaining)
@@ -200,23 +322,14 @@ class TamperLockManager(context: Context) {
         return remaining
     }
 
-    /**
-     * Checks if a cooldown is currently in progress.
-     */
     fun isCooldownActive(): Boolean {
         return prefs.getBoolean(KEY_COOLDOWN_ACTIVE, false)
     }
 
-    /**
-     * Checks if the cooldown timer has reached zero and is ready for unlock.
-     */
     fun isCooldownFinished(): Boolean {
         return prefs.getBoolean(KEY_COOLDOWN_COMPLETED, false)
     }
 
-    /**
-     * Resets or cancels cooldown state.
-     */
     @Synchronized
     fun cancelCooldown() {
         prefs.edit()
@@ -224,7 +337,7 @@ class TamperLockManager(context: Context) {
             .putBoolean(KEY_COOLDOWN_COMPLETED, false)
             .putLong(KEY_COOLDOWN_REMAINING, 0L)
             .remove(KEY_COOLDOWN_SIGNATURE)
-            .apply()
+            .commit()
         Log.i(TAG, "Cooldown timer cancelled")
     }
 
@@ -234,7 +347,7 @@ class TamperLockManager(context: Context) {
             .putBoolean(KEY_COOLDOWN_ACTIVE, false)
             .putBoolean(KEY_COOLDOWN_COMPLETED, true)
             .putLong(KEY_COOLDOWN_REMAINING, 0L)
-            .apply()
+            .commit()
         Log.i(TAG, "Cooldown timer reached 0: Unlock authorized.")
     }
 
@@ -242,24 +355,16 @@ class TamperLockManager(context: Context) {
     // SECTION 2B: TEMPORARY BYPASS MANAGER (Partner TOTP Authorized)
     // =========================================================================
 
-    /**
-     * Attempts to activate a temporary bypass window using the partner's TOTP code.
-     * Returns true if the code was verified and bypass was activated.
-     */
     @Synchronized
     fun activateBypassWithTotp(totpCode: String, durationMs: Long): Boolean {
         if (!verifyPartnerTotp(totpCode)) {
-            Log.w(TAG, "Cannot activate bypass: invalid partner TOTP code.")
+            Log.w(TAG, "Cannot activate bypass: invalid or replayed partner TOTP code.")
             return false
         }
         startTemporaryBypass(durationMs)
         return true
     }
 
-    /**
-     * Starts a temporary bypass countdown of duration [durationMs].
-     * Monotonic clock ensures the user cannot manipulate the duration by altering the system clock.
-     */
     @Synchronized
     fun startTemporaryBypass(durationMs: Long) {
         val nowElapsed = SystemClock.elapsedRealtime()
@@ -272,16 +377,12 @@ class TamperLockManager(context: Context) {
             .putLong(KEY_BYPASS_LAST_ELAPSED, nowElapsed)
             .putLong(KEY_BYPASS_LAST_WALL, nowWall)
             .putString(KEY_BYPASS_SIGNATURE, createBypassSignature(durationMs, durationMs, nowElapsed, nowWall))
-            .apply()
+            .commit()
 
         cachedBypassActive = true
         Log.i(TAG, "Temporary bypass activated for $durationMs ms ($durationMs / 60000 min)")
     }
 
-    /**
-     * Returns the remaining milliseconds for the active temporary bypass.
-     * Automatically deactivates bypass when elapsed time reaches zero.
-     */
     @Synchronized
     fun getRemainingBypassMs(): Long {
         if (!isBypassActive()) return 0L
@@ -327,25 +428,19 @@ class TamperLockManager(context: Context) {
         return remaining
     }
 
-    /**
-     * Returns true if a temporary bypass is currently running.
-     */
     fun isBypassActive(): Boolean {
         val active = prefs.getBoolean(KEY_BYPASS_ACTIVE, false)
         cachedBypassActive = active
         return active
     }
 
-    /**
-     * Cancels the temporary bypass early and immediately restores all protections.
-     */
     @Synchronized
     fun cancelTemporaryBypass() {
         prefs.edit()
             .putBoolean(KEY_BYPASS_ACTIVE, false)
             .putLong(KEY_BYPASS_REMAINING, 0L)
             .remove(KEY_BYPASS_SIGNATURE)
-            .apply()
+            .commit()
         cachedBypassActive = false
         Log.i(TAG, "Temporary bypass terminated: protections fully re-engaged.")
     }
@@ -370,23 +465,52 @@ class TamperLockManager(context: Context) {
         val lastWall = prefs.getLong(KEY_BYPASS_LAST_WALL, -1L)
         val storedSig = prefs.getString(KEY_BYPASS_SIGNATURE, null) ?: return false
 
+        // State bounds validation
+        if (duration <= 0L || duration > 24 * 3_600_000L) return false
+        if (remaining < 0L || remaining > duration) return false
+        if (lastElapsed <= 0L || lastWall <= 0L) return false
+
         val computedSig = createBypassSignature(duration, remaining, lastElapsed, lastWall)
-        return computedSig.equals(storedSig, ignoreCase = true)
+        return isConstantTimeEqual(computedSig, storedSig)
     }
 
     // =========================================================================
     // SECTION 3: CRYPTOGRAPHIC INTEGRITY SEALING
     // =========================================================================
 
+    @Synchronized
     private fun getOrCreateDeviceKey(): ByteArray {
-        var keyHex = prefs.getString(KEY_DEVICE_INTEGRITY_KEY, null)
-        if (keyHex == null) {
-            val key = ByteArray(32)
-            SecureRandom().nextBytes(key)
-            keyHex = key.joinToString("") { "%02x".format(it) }
-            prefs.edit().putString(KEY_DEVICE_INTEGRITY_KEY, keyHex).apply()
+        val encryptedKey = prefs.getString(KEY_DEVICE_INTEGRITY_KEY_ENCRYPTED, null)
+        if (encryptedKey != null) {
+            val decrypted = CryptoKeyManager.decryptBytes(encryptedKey)
+            if (decrypted != null && decrypted.size == 32) {
+                return decrypted
+            }
+            Log.e(TAG, "Corrupt device integrity key; regenerating new hardware key.")
         }
-        return keyHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+        // Migrate legacy plaintext key if found
+        val legacyHex = prefs.getString(KEY_DEVICE_INTEGRITY_KEY_LEGACY, null)
+        if (legacyHex != null && legacyHex.length == 64) {
+            val keyBytes = legacyHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            saveDeviceKey(keyBytes)
+            prefs.edit().remove(KEY_DEVICE_INTEGRITY_KEY_LEGACY).commit()
+            return keyBytes
+        }
+
+        // Generate brand new 256-bit secure key
+        val newKey = ByteArray(32)
+        SecureRandom().nextBytes(newKey)
+        saveDeviceKey(newKey)
+        return newKey
+    }
+
+    private fun saveDeviceKey(key: ByteArray) {
+        val encrypted = CryptoKeyManager.encryptBytes(key)
+        prefs.edit()
+            .putString(KEY_DEVICE_INTEGRITY_KEY_ENCRYPTED, encrypted)
+            .remove(KEY_DEVICE_INTEGRITY_KEY_LEGACY)
+            .commit()
     }
 
     private fun createCooldownSignature(
@@ -409,8 +533,36 @@ class TamperLockManager(context: Context) {
         val lastWall = prefs.getLong(KEY_LAST_CHECKED_WALL, -1L)
         val storedSig = prefs.getString(KEY_COOLDOWN_SIGNATURE, null) ?: return false
 
+        // State bounds validation
+        if (duration <= 0L || duration > 30 * 86_400_000L) return false
+        if (remaining < 0L || remaining > duration) return false
+        if (lastElapsed <= 0L || lastWall <= 0L) return false
+
         val computedSig = createCooldownSignature(duration, remaining, lastElapsed, lastWall)
-        return computedSig.equals(storedSig, ignoreCase = true)
+        return isConstantTimeEqual(computedSig, storedSig)
+    }
+
+    private fun isConstantTimeEqual(a: String, b: String): Boolean {
+        val bytesA = a.toByteArray(Charsets.UTF_8)
+        val bytesB = b.toByteArray(Charsets.UTF_8)
+        return MessageDigest.isEqual(bytesA, bytesB)
+    }
+
+    private fun migrateLegacyPlaintextStorage() {
+        // Migrate partner secret
+        val legacySecret = prefs.getString(KEY_PARTNER_SECRET_LEGACY, null)
+        if (!legacySecret.isNullOrBlank() && !prefs.contains(KEY_PARTNER_SECRET_ENCRYPTED)) {
+            Log.i(TAG, "Migrating legacy plaintext partner secret into Keystore-backed encryption...")
+            savePartnerSecret(legacySecret)
+        }
+
+        // Migrate device key
+        val legacyKey = prefs.getString(KEY_DEVICE_INTEGRITY_KEY_LEGACY, null)
+        if (!legacyKey.isNullOrBlank() && !prefs.contains(KEY_DEVICE_INTEGRITY_KEY_ENCRYPTED)) {
+            Log.i(TAG, "Migrating legacy plaintext device key into Keystore-backed encryption...")
+            val keyBytes = legacyKey.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            saveDeviceKey(keyBytes)
+        }
     }
 
     // =========================================================================
@@ -493,7 +645,14 @@ class TamperLockManager(context: Context) {
 
         private const val MAX_SANE_WALL_CLOCK_JUMP_MS = 7 * 24 * 3600 * 1000L // 7 days
 
-        private const val KEY_PARTNER_SECRET = "partner_totp_secret"
+        // Preference keys
+        private const val KEY_PARTNER_SECRET_LEGACY = "partner_totp_secret"
+        private const val KEY_PARTNER_SECRET_ENCRYPTED = "partner_totp_secret_enc"
+        private const val KEY_LAST_ACCEPTED_STEP = "totp_last_accepted_step"
+        private const val KEY_FAILED_ATTEMPTS = "totp_failed_attempts"
+        private const val KEY_LOCKOUT_UNTIL_ELAPSED = "totp_lockout_until_elapsed"
+        private const val KEY_LOCKOUT_UNTIL_WALL = "totp_lockout_until_wall"
+
         private const val KEY_COOLDOWN_ACTIVE = "cooldown_active"
         private const val KEY_COOLDOWN_COMPLETED = "cooldown_completed"
         private const val KEY_COOLDOWN_DURATION = "cooldown_duration"
@@ -502,7 +661,8 @@ class TamperLockManager(context: Context) {
         private const val KEY_LAST_CHECKED_ELAPSED = "cooldown_last_elapsed"
         private const val KEY_LAST_CHECKED_WALL = "cooldown_last_wall"
         private const val KEY_COOLDOWN_SIGNATURE = "cooldown_signature"
-        private const val KEY_DEVICE_INTEGRITY_KEY = "device_integrity_key"
+        private const val KEY_DEVICE_INTEGRITY_KEY_LEGACY = "device_integrity_key"
+        private const val KEY_DEVICE_INTEGRITY_KEY_ENCRYPTED = "device_integrity_key_enc"
 
         private const val KEY_BYPASS_ACTIVE = "bypass_active"
         private const val KEY_BYPASS_DURATION = "bypass_duration"

@@ -22,6 +22,7 @@ import com.zevbuild.zevblock.core.dns.DnsPacketBuilder
 import com.zevbuild.zevblock.core.dns.DnsPacketParser
 import com.zevbuild.zevblock.core.dns.DomainBlocklistMatcher
 import com.zevbuild.zevblock.core.dns.IpUdpPacket
+import com.zevbuild.zevblock.core.dns.ParsedDnsQuery
 import com.zevbuild.zevblock.core.dns.SafeSearchManager
 import com.zevbuild.zevblock.core.security.TamperLockManager
 import kotlinx.coroutines.CoroutineScope
@@ -368,7 +369,7 @@ open class DnsBlockerVpnService : VpnService() {
                 allowedQueriesCount.value = allowedCount
                 scope.launch(Dispatchers.IO) {
                     upstreamSemaphore.withPermit {
-                        forwardUpstreamDns(ipPacket, dnsQuery.rawQueryBytes, fos)
+                        forwardUpstreamDns(ipPacket, dnsQuery, fos)
                     }
                 }
                 logDnsEvent(
@@ -395,7 +396,7 @@ open class DnsBlockerVpnService : VpnService() {
      * (Cloudflare Family 1.1.1.3 / CleanBrowsing / AdGuard Family)
      * using a protected UDP socket that bypasses the local VPN TUN interface.
      */
-    private fun forwardUpstreamDns(incomingIpPacket: IpUdpPacket, rawDnsQuery: ByteArray, fos: FileOutputStream) {
+    private fun forwardUpstreamDns(incomingIpPacket: IpUdpPacket, dnsQuery: ParsedDnsQuery, fos: FileOutputStream) {
         var socket: DatagramSocket? = null
         try {
             socket = DatagramSocket()
@@ -430,20 +431,33 @@ open class DnsBlockerVpnService : VpnService() {
                 try {
                     val startMs = SystemClock.elapsedRealtime()
                     val upstreamAddr = InetAddress.getByName(serverIp)
-                    val sendPacket = DatagramPacket(rawDnsQuery, rawDnsQuery.size, upstreamAddr, 53)
+                    val sendPacket = DatagramPacket(dnsQuery.rawQueryBytes, dnsQuery.rawQueryBytes.size, upstreamAddr, 53)
                     socket.send(sendPacket)
 
                     val recvBuffer = ByteArray(4096)
                     val recvPacket = DatagramPacket(recvBuffer, recvBuffer.size)
                     socket.receive(recvPacket)
 
-                    val rtt = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
-                    _lastUpstreamLatencyMs.value = rtt
+                    // 1. Validate response originates from exact contacted resolver address and port
+                    if (recvPacket.address != upstreamAddr || recvPacket.port != 53) {
+                        Log.w(TAG, "Discarded spoofed DNS reply from unexpected source: ${recvPacket.address}:${recvPacket.port}")
+                        continue
+                    }
 
                     val payload = ByteArray(recvPacket.length)
                     System.arraycopy(recvBuffer, 0, payload, 0, recvPacket.length)
+
+                    // 2. Validate Transaction ID, response flag (QR=1), opcode 0, and question match
+                    if (!DnsPacketParser.validateDnsResponse(payload, dnsQuery)) {
+                        Log.w(TAG, "Discarded malformed or mismatched DNS response from $serverIp")
+                        continue
+                    }
+
+                    val rtt = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
+                    _lastUpstreamLatencyMs.value = rtt
+
                     dnsAnswerPayload = payload
-                    break // Succeeded with adult-filtered response
+                    break // Succeeded with validated adult-filtered response
                 } catch (e: Exception) {
                     // Try next resolver in the pool
                     continue
