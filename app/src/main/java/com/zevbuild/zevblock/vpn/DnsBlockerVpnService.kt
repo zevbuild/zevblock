@@ -22,6 +22,7 @@ import com.zevbuild.zevblock.core.dns.DnsPacketBuilder
 import com.zevbuild.zevblock.core.dns.DnsPacketParser
 import com.zevbuild.zevblock.core.dns.DomainBlocklistMatcher
 import com.zevbuild.zevblock.core.dns.IpUdpPacket
+import com.zevbuild.zevblock.core.dns.ParsedDnsQuery
 import com.zevbuild.zevblock.core.dns.SafeSearchManager
 import com.zevbuild.zevblock.core.security.TamperLockManager
 import kotlinx.coroutines.CoroutineScope
