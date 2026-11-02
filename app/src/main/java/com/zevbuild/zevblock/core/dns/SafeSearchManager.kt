@@ -12,6 +12,8 @@ class SafeSearchManager {
     companion object {
         private const val TAG = "SafeSearchManager"
 
+        private val GOOGLE_COUNTRY_SECOND_LEVELS = setOf("co", "com", "net", "org", "gov", "ac")
+
         // Google SafeSearch VIP
         const val GOOGLE_SAFESEARCH_IPV4 = "216.239.38.120" // forcesafesearch.google.com
         const val GOOGLE_SAFESEARCH_IPV6 = "2001:4860:4806::78"
@@ -128,28 +130,30 @@ class SafeSearchManager {
     /**
      * Determines whether the domain is an active Google search domain (e.g. www.google.com, google.ca, etc.)
      */
-    fun isGoogleSearchDomain(domain: String): Boolean {\n        val normalized = domain.lowercase().trimEnd('.')
+    fun isGoogleSearchDomain(domain: String): Boolean {
+        val normalized = domain.lowercase().trimEnd('.')
         val labels = normalized.split('.')
         val hostLabels = if (labels.firstOrNull() == "www") labels.drop(1) else labels
-        
+
         if (hostLabels.firstOrNull() != "google") return false
-        
+
         // Accept google.com, google.ca, and common two-level country domains
         // such as google.co.uk. Require an exact label count so names like
         // google.com.evil.test cannot inherit SafeSearch rewriting.
         if (hostLabels.size == 2) {
-        val tld = hostLabels[1]
-        return tld == "com" || tld.length == 2
+            val tld = hostLabels[1]
+            return tld == "com" || tld.length == 2
         }
-        
+
         if (hostLabels.size == 3) {
-        val secondLevel = hostLabels[1]
-        val countryCode = hostLabels[2]
-        return secondLevel in setOf("co", "com", "net", "org", "gov", "ac") &&
-        countryCode.length == 2
+            val secondLevel = hostLabels[1]
+            val countryCode = hostLabels[2]
+            return secondLevel in GOOGLE_COUNTRY_SECOND_LEVELS && countryCode.length == 2
         }
-        
-        return false\n    }\n
+
+        return false
+    }
+
     fun isYouTubeDomain(domain: String): Boolean {
         return domain == "youtube.com" ||
                 domain == "www.youtube.com" ||
