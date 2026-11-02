@@ -128,19 +128,28 @@ class SafeSearchManager {
     /**
      * Determines whether the domain is an active Google search domain (e.g. www.google.com, google.ca, etc.)
      */
-    fun isGoogleSearchDomain(domain: String): Boolean {
-        if (domain == "google.com" || domain == "www.google.com") return true
-
-        // Fast regex or prefix/suffix check for international Google ccTLDs
-        if (domain.startsWith("google.") || domain.startsWith("www.google.")) {
-            // Exclude non-search services like googleapis, googletagmanager, googleusercontent
-            if (!domain.contains("apis") && !domain.contains("content") && !domain.contains("tag")) {
-                return true
-            }
+    fun isGoogleSearchDomain(domain: String): Boolean {\n        val normalized = domain.lowercase().trimEnd('.')
+        val labels = normalized.split('.')
+        val hostLabels = if (labels.firstOrNull() == "www") labels.drop(1) else labels
+        
+        if (hostLabels.firstOrNull() != "google") return false
+        
+        // Accept google.com, google.ca, and common two-level country domains
+        // such as google.co.uk. Require an exact label count so names like
+        // google.com.evil.test cannot inherit SafeSearch rewriting.
+        if (hostLabels.size == 2) {
+        val tld = hostLabels[1]
+        return tld == "com" || tld.length == 2
         }
-        return false
-    }
-
+        
+        if (hostLabels.size == 3) {
+        val secondLevel = hostLabels[1]
+        val countryCode = hostLabels[2]
+        return secondLevel in setOf("co", "com", "net", "org", "gov", "ac") &&
+        countryCode.length == 2
+        }
+        
+        return false\n    }\n
     fun isYouTubeDomain(domain: String): Boolean {
         return domain == "youtube.com" ||
                 domain == "www.youtube.com" ||
