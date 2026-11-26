@@ -395,9 +395,9 @@ fun DashboardScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
-                                painter = painterResource(id = R.drawable.ic_zevblock_logo),
+                                painter = painterResource(id = R.drawable.ic_zevblock_mark),
                                 contentDescription = "ZevBlock Shield",
-                                modifier = Modifier.size(36.dp)
+                                modifier = Modifier.size(38.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(14.dp))

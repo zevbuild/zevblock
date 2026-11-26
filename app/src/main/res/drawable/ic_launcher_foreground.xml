@@ -6,52 +6,19 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Outer Cyber Shield Border -->
-    <path
-        android:pathData="M54,24 C62,26 71,26 76,28 C76.8,28.3 77.2,29.1 77.2,30 C77.2,48.5 72,66 54,83 C36,66 30.8,48.5 30.8,30 C30.8,29.1 31.2,28.3 32,28 C37,26 46,26 54,24 Z">
+    <!-- Monolith Z-Shield (centered within 66dp adaptive safe zone, r <= 30dp) -->
+    <path android:pathData="M54.00,25.80 L74.08,32.68 L46.94,66.60 L66.20,66.60 L66.20,62.50 L54.32,62.50 L75.60,35.90 L75.60,61.90 L69.80,71.80 L54.00,82.20 L38.20,71.80 L37.35,70.34 L61.06,40.70 L41.80,40.70 L41.80,44.80 L53.68,44.80 L35.61,67.38 L32.40,61.90 L32.40,33.20 Z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="31"
-                android:startY="24"
-                android:endX="77"
-                android:endY="83"
+                android:startX="32"
+                android:startY="42"
+                android:endX="76"
+                android:endY="56"
                 android:type="linear">
-                <item android:color="#00E5FF" android:offset="0.0" />
-                <item android:color="#00E676" android:offset="1.0" />
+                <item android:color="#10E882" android:offset="0.0" />
+                <item android:color="#22D4C0" android:offset="0.5" />
+                <item android:color="#33C6FB" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
-
-    <!-- Inner Shield Body -->
-    <path
-        android:fillColor="#0D1627"
-        android:pathData="M54,28.5 C61,30.2 68,30.2 72.5,32 C72.5,47.5 68,62 54,77 C40,62 35.5,47.5 35.5,32 C40,30.2 47,30.2 54,28.5 Z" />
-
-    <!-- Shield Header Security Node -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M54,32 A2,2 0 1,1 53.99,32 Z" />
-
-    <!-- Bold Geometric 'Z' Monogram -->
-    <path
-        android:pathData="M43,39 L65,39 L65,45.5 L51.5,57.5 L65,57.5 L65,64 L43,64 L43,57.5 L56.5,45.5 L43,45.5 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="43"
-                android:startY="39"
-                android:endX="65"
-                android:endY="64"
-                android:type="linear">
-                <item android:color="#00E676" android:offset="0.0" />
-                <item android:color="#00B0FF" android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Sleek Diagonal Cyber Cut Accent -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.18"
-        android:pathData="M48,40 L53,40 L45,52 L43,49 Z" />
-
 </vector>

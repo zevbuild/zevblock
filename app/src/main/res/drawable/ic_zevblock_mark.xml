@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- Dark obsidian inner Z cutout backing clipped strictly inside the shield silhouette -->
+    <path
+        android:fillColor="#090E1A"
+        android:pathData="M24.00,4.00 L39.32,9.25 L39.32,29.60 L35.21,36.62 L24.00,44.00 L12.79,36.62 L8.68,29.60 L8.68,9.25 Z" />
+
+    <!-- Emerald-to-cyan Monolith Z-Shield -->
+    <path android:pathData="M24.00,4.00 L38.21,8.87 L18.93,32.97 L32.65,32.97 L32.65,29.99 L24.29,29.99 L39.32,11.21 L39.32,29.60 L35.21,36.62 L24.00,44.00 L12.79,36.62 L12.20,35.62 L29.07,14.53 L15.35,14.53 L15.35,17.51 L23.71,17.51 L10.94,33.47 L8.68,29.60 L8.68,9.25 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="8"
+                android:startY="15"
+                android:endX="40"
+                android:endY="26"
+                android:type="linear">
+                <item android:color="#10E882" android:offset="0.0" />
+                <item android:color="#22D4C0" android:offset="0.5" />
+                <item android:color="#33C6FB" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

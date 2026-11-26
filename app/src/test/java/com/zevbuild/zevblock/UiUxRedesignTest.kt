@@ -157,4 +157,22 @@ class UiUxRedesignTest {
         DnsBlockerVpnService.clearSessionLogs()
         assertTrue(DnsBlockerVpnService.recentLogs.value.isEmpty())
     }
+
+    @Test
+    fun brandLogoAndIconResources_resolveCleanly() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val drawableIds = listOf(
+            R.drawable.ic_launcher_background,
+            R.drawable.ic_launcher_foreground,
+            R.drawable.ic_launcher_monochrome,
+            R.drawable.ic_stat_zevblock_shield,
+            R.drawable.ic_zevblock_mark,
+            R.drawable.ic_zevblock_logo,
+            R.mipmap.ic_launcher,
+            R.mipmap.ic_launcher_round,
+        )
+        for (resId in drawableIds) {
+            assertNotNull("Expected icon resource $resId to resolve cleanly", androidx.core.content.ContextCompat.getDrawable(context, resId))
+        }
+    }
 }
