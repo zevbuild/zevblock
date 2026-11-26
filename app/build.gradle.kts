@@ -16,8 +16,8 @@ android {
     applicationId = "com.zevbuild.zevblock"
     minSdk = 24
     targetSdk = 36
-    versionCode = 16
-    versionName = "2.5"
+    versionCode = 17
+    versionName = "3.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

@@ -28,6 +28,19 @@
 
 ## 🕒 Change History
 
+### [2026-11-26 14:10] - Release v3.0-stable (Build 17) Published
+- **AI Agent / Model**: Antigravity
+- **Objective**: Bump ZevBlock to `v3.0` (`versionCode = 17`) and publish the `v3.0-stable` GitHub Release bundling the 4-tab Calm Fortress UI/UX redesign, Partner Vault hardening, ISO/IEC 18004 QR generator, and Concept 1 Monolith Z-Shield brand identity.
+- **Files Modified / Created**:
+  - `app/build.gradle.kts` - Bumped `versionCode` to `17` and `versionName` to `"3.0"`.
+  - `.github/workflows/build.yml` - Updated default tag fallback, APK filename (`ZevBlock-v3.0.apk`), and CI artifact name (`ZevBlock-v3.0-apk`).
+  - `brain/SYSTEM_STATE.md` - Updated operational status header to Version 3.0 / Build 17.
+  - `README.md` - Updated download instructions to reference `v3.0-stable` release and `ZevBlock-v3.0-apk.zip`.
+- **Verification**:
+  - Triggered tagged CI build & GitHub Release workflow (`v3.0-stable`) on `main` (`./gradlew assembleDebug --no-daemon --stacktrace`, `./gradlew testDebugUnitTest --no-daemon --stacktrace`).
+- **Next Steps / Open Items**:
+  - Distribute `ZevBlock-v3.0-stable.apk` via GitHub Releases.
+
 ### [2026-11-26 13:45] - Brand Identity Refresh: Concept 1 (Monolith Z-Shield) Android Icon Suite
 - **AI Agent / Model**: Antigravity
 - **Objective**: Replace ZevBlock's legacy launcher icon, monochrome layer, status bar notification badge, and in-app brand marks with the chosen **Concept 1 (Monolith Z-Shield)** identity across all Android resource buckets (`API 24–36`).
