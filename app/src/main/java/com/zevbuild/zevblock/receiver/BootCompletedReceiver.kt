@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.util.Log
 import com.zevbuild.zevblock.core.diagnostics.CrashGuardManager
+import com.zevbuild.zevblock.core.prefs.ZevBlockPreferences
 import com.zevbuild.zevblock.vpn.DnsBlockerVpnService
 
 /**
@@ -23,6 +24,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
             Intent.ACTION_LOCKED_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 try {
+                    ZevBlockPreferences.applyFromStorage(context)
                     // Only auto-start VPN service if the user has already granted VPN consent.
                     // Starting a VpnService when VpnService.prepare() != null causes establish() to return null
                     // and triggers ForegroundServiceStartNotAllowedException / crash loops on Android 12-15.

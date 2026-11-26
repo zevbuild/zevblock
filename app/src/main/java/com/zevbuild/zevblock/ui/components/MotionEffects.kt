@@ -1,7 +1,6 @@
 package com.zevbuild.zevblock.ui.components
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ExperimentalAnimationApi
+import android.provider.Settings
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -11,16 +10,9 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -34,11 +26,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -46,28 +37,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Modifier for modern spring physics tactile press animation.
- * Depresses slightly with spring damping and pops back on release.
- */
-fun Modifier.springBounceClick(
-    scaleDownFactor: Float = 0.94f,
-    onClick: () -> Unit
-): Modifier = this.pointerInput(onClick) {
-    awaitPointerEventScope {
-        while (true) {
-            val down = awaitFirstDown(requireUnconsumed = false)
-            // Pressed state handled by stateful composable or pointer
-        }
-    }
-}
-
-/**
- * Interactive Composable wrapper that provides spring bounce scale on touch.
+ * Interactive Composable wrapper providing gentle spring tactile bounce on press.
  */
 @Composable
 fun SpringBounceBox(
     modifier: Modifier = Modifier,
-    scaleDown: Float = 0.95f,
+    scaleDown: Float = 0.96f,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
@@ -90,20 +65,19 @@ fun SpringBounceBox(
             }
             .then(
                 if (enabled && onClick != null) {
-                    Modifier
-                        .pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    awaitFirstDown(requireUnconsumed = false)
-                                    isPressed = true
-                                    val up = waitForUpOrCancellation()
-                                    isPressed = false
-                                    if (up != null) {
-                                        onClick()
-                                    }
+                    Modifier.pointerInput(onClick) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitFirstDown(requireUnconsumed = false)
+                                isPressed = true
+                                val up = waitForUpOrCancellation()
+                                isPressed = false
+                                if (up != null) {
+                                    onClick()
                                 }
                             }
                         }
+                    }
                 } else Modifier
             ),
         contentAlignment = Alignment.Center
@@ -113,8 +87,7 @@ fun SpringBounceBox(
 }
 
 /**
- * Lightweight, fast numeric counter that avoids spawning per-character
- * AnimatedContent subcompositions during initial screen load.
+ * Lightweight numeric readout avoiding subcomposition overhead during rapid updates.
  */
 @Composable
 fun AnimatedRollingCounter(
@@ -140,8 +113,8 @@ fun AnimatedRollingCounter(
 }
 
 /**
- * Pulsing radar dot for active status indicators (e.g. VPN, Active Guard).
- * Only runs an infinite transition when `active == true` to save CPU/GPU and battery.
+ * Pulsing radar dot for active service indicators.
+ * Respects system animator scale and stays completely static when inactive.
  */
 @Composable
 fun RadarPulseDot(
@@ -149,35 +122,47 @@ fun RadarPulseDot(
     activeColor: Color,
     inactiveColor: Color,
     size: Dp = 8.dp,
-    pulseMultiplier: Float = 2.2f
+    pulseMultiplier: Float = 2.1f
 ) {
+    val context = LocalContext.current
+    val animationsEnabled = remember(context) {
+        try {
+            Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            ) > 0f
+        } catch (_: Throwable) {
+            true
+        }
+    }
+
     Box(
         modifier = Modifier.size(size * 2),
         contentAlignment = Alignment.Center
     ) {
-        if (active) {
+        if (active && animationsEnabled) {
             val infiniteTransition = rememberInfiniteTransition(label = "radar_pulse")
             val pulseScale by infiniteTransition.animateFloat(
                 initialValue = 1f,
                 targetValue = pulseMultiplier,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(1800, easing = FastOutSlowInEasing),
+                    animation = tween(2000, easing = FastOutSlowInEasing),
                     repeatMode = RepeatMode.Restart
                 ),
                 label = "radar_scale"
             )
 
             val pulseAlpha by infiniteTransition.animateFloat(
-                initialValue = 0.65f,
+                initialValue = 0.6f,
                 targetValue = 0f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(1800, easing = FastOutSlowInEasing),
+                    animation = tween(2000, easing = FastOutSlowInEasing),
                     repeatMode = RepeatMode.Restart
                 ),
                 label = "radar_alpha"
             )
 
-            // Expanding wave ring using graphicsLayer to avoid layout relayout on each frame
             Box(
                 modifier = Modifier
                     .size(size)
@@ -191,7 +176,6 @@ fun RadarPulseDot(
             )
         }
 
-        // Core solid dot
         Box(
             modifier = Modifier
                 .size(size)

@@ -80,13 +80,14 @@ This document describes the architectural layout, core design patterns, componen
 
 ### 4. Presentation Layer: Jetpack Compose UI
 - **Activity**: `com.zevbuild.zevblock.MainActivity`
-- **UI Architecture**: Single Activity, declarative Jetpack Compose UI with Material 3 styling.
-- **Key Screens**:
-  - `DashboardScreen`: System status cards, real-time protection toggles, block counter telemetry wave card (`NetworkTelemetryWaveCard`).
-  - `OnboardingScreen`: Step-by-step permissions wizard (VPN, Accessibility, Device Admin/Owner, Battery Optimization exemptions).
-  - `PartnerSetupScreen`: QR code generation and partner scanning for 2-person cryptographic rule.
-  - `CustomRulesScreen`: User-defined domain blocking and allowlisting (`CustomShieldRuleManager`).
-  - `OverlayManager` / `SecurityWarningOverlayActivity`: Non-intrusive heads-up alerts or full-screen blocking overlays when adult content is intercepted.
+- **UI Architecture**: Single Activity, declarative Jetpack Compose UI with `ZevBlockTheme` (Slate Dark default & Calm Light support) and a 4-tab Material 3 navigation architecture (`Shield`, `Rules`, `Partner`, `Settings`) with `ON_RESUME` permission auto-sync.
+- **Key Screens & Modals**:
+  - `DashboardScreen` ("Shield"): Honest independent status for VPN, Accessibility, Device Hardening (Standard vs Admin vs Device Owner), interactive 7-day momentum breakdown, and recovery banner when services are interrupted.
+  - `CustomRulesScreen` ("Rules"): `LazyColumn` management of custom domains & keywords, live 24h cooldown countdowns, and a read-only `Baseline & Lookup` explorer (`Why was X blocked?`).
+  - `PartnerSetupScreen` ("Partner"): Spec-compliant ISO/IEC 18004 QR & authenticator deep-link pairing wizard, Vault-locked secret storage once verified, segmented 6-digit OTP input, live brute-force lockout feedback, temporary bypass window, and monotonic hardware cooldown unlocks.
+  - `SettingsScreen` & `GuidedSetupSheet`: Guard toggle controls (Partner-gated when reducing protection), notification display style, privacy/limits disclosures, OTA updates, guided setup wizard (Android 13+ Restricted Settings, Battery Keep-Alive, Notifications, ADB/Shizuku Device Owner), and collapsible Developer & QA Lab.
+  - `LiveDnsTelemetryModal` / `NetworkTelemetryWaveCard`: On-demand RAM-only stream with pause/clear privacy controls and real upstream latency metrics.
+  - `OverlayManager` / `SecurityWarningOverlayActivity`: Calm recovery-focused intervention overlay displaying rule category badges and streak encouragement.
 
 ### 5. Diagnostics & Lifecycle
 - `BootCompletedReceiver`: Automatically reboots VPN and monitoring services when device restarts.

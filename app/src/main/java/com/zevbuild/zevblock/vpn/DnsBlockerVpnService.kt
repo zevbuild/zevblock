@@ -16,6 +16,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.zevbuild.zevblock.MainActivity
+import com.zevbuild.zevblock.R
 import com.zevbuild.zevblock.core.diagnostics.CrashGuardManager
 import com.zevbuild.zevblock.core.dns.DnsLogEntry
 import com.zevbuild.zevblock.core.dns.DnsPacketBuilder
@@ -24,6 +25,7 @@ import com.zevbuild.zevblock.core.dns.DomainBlocklistMatcher
 import com.zevbuild.zevblock.core.dns.IpUdpPacket
 import com.zevbuild.zevblock.core.dns.ParsedDnsQuery
 import com.zevbuild.zevblock.core.dns.SafeSearchManager
+import com.zevbuild.zevblock.core.prefs.ZevBlockPreferences
 import com.zevbuild.zevblock.core.security.TamperLockManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +85,7 @@ open class DnsBlockerVpnService : VpnService() {
     }
 
     private fun ensureDependencies() {
+        ZevBlockPreferences.applyFromStorage(applicationContext)
         if (statsManager == null) {
             statsManager = com.zevbuild.zevblock.core.stats.ProtectionStatsManager(
                 applicationContext,
@@ -275,13 +278,23 @@ open class DnsBlockerVpnService : VpnService() {
             val safe = _safeSearchQueries.get()
             val allowed = _allowedQueries.get()
             val latency = _lastUpstreamLatencyMs.value
+            val latencyLabel = if (latency > 0L) "${latency}ms" else "Ready"
+            val notifMode = ZevBlockPreferences.getNotificationMode(applicationContext)
 
-            val title = "ZevBlock • ↓ ${formatSpeed(dlSpeed)}  ↑ ${formatSpeed(ulSpeed)}"
-            val compactLine = "Today: ↓ ${formatBytes(dayDl)} ↑ ${formatBytes(dayUl)} • Blocked: $blocked"
+            val title: String
+            val compactLine: String
+            if (notifMode == ZevBlockPreferences.NOTIF_SPEED) {
+                title = "ZevBlock • ↓ ${formatSpeed(dlSpeed)}  ↑ ${formatSpeed(ulSpeed)}"
+                compactLine = "Today: ↓ ${formatBytes(dayDl)} ↑ ${formatBytes(dayUl)} • Blocked: $blocked"
+            } else {
+                val safeStatus = if (safeSearchManager.isEnabled) "SafeSearch On" else "SafeSearch Off"
+                title = "ZevBlock Active • $safeStatus"
+                compactLine = "Blocked today: $blocked • ${_activeUpstreamLabel.value} ($latencyLabel)"
+            }
             val expandedText = buildString {
                 append("Live Speed: ↓ ${formatSpeed(dlSpeed)}  |  ↑ ${formatSpeed(ulSpeed)}\n")
                 append("Today's Data: ↓ ${formatBytes(dayDl)}  |  ↑ ${formatBytes(dayUl)} (App DNS: ↓ ${formatBytes(dayAppDl)} ↑ ${formatBytes(dayAppUl)})\n")
-                append("DNS Shield: $blocked Blocked • $safe SafeSearch • $allowed Allowed (${latency}ms)")
+                append("DNS Shield: $blocked Blocked • $safe SafeSearch • $allowed Allowed ($latencyLabel)")
             }
 
             updateNotification(titleText = title, statusText = compactLine, bigText = expandedText)
@@ -455,6 +468,7 @@ open class DnsBlockerVpnService : VpnService() {
 
                     val rtt = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
                     _lastUpstreamLatencyMs.value = rtt
+                    _activeUpstreamLabel.value = resolverLabelForIp(serverIp)
 
                     dnsAnswerPayload = payload
                     break // Succeeded with validated adult-filtered response
@@ -546,8 +560,8 @@ open class DnsBlockerVpnService : VpnService() {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(titleText)
             .setContentText(statusText)
-            .setSubText("DNS Sinkhole & Speed")
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSubText("DNS Sinkhole")
+            .setSmallIcon(R.drawable.ic_stat_zevblock_shield)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -660,8 +674,14 @@ open class DnsBlockerVpnService : VpnService() {
         private val _todayAppUploadBytes = MutableStateFlow(0L)
         val todayAppUploadBytes: StateFlow<Long> = _todayAppUploadBytes.asStateFlow()
 
-        private val _lastUpstreamLatencyMs = MutableStateFlow(14L)
+        private val _lastUpstreamLatencyMs = MutableStateFlow(0L)
         val lastUpstreamLatencyMs: StateFlow<Long> = _lastUpstreamLatencyMs.asStateFlow()
+
+        private val _activeUpstreamLabel = MutableStateFlow("Cloudflare Family (1.1.1.3)")
+        val activeUpstreamLabel: StateFlow<String> = _activeUpstreamLabel.asStateFlow()
+
+        private val _isSessionLogPaused = MutableStateFlow(false)
+        val isSessionLogPaused: StateFlow<Boolean> = _isSessionLogPaused.asStateFlow()
 
         private val _recentLogs = MutableStateFlow<List<DnsLogEntry>>(emptyList())
         val recentLogs: StateFlow<List<DnsLogEntry>> = _recentLogs.asStateFlow()
@@ -670,9 +690,25 @@ open class DnsBlockerVpnService : VpnService() {
         val safeSearchManager = SafeSearchManager()
         var statsManager: com.zevbuild.zevblock.core.stats.ProtectionStatsManager? = null
 
+        private fun resolverLabelForIp(ip: String): String = when (ip) {
+            UPSTREAM_DNS_CLOUDFLARE_IPV4_1, UPSTREAM_DNS_CLOUDFLARE_IPV4_2,
+            UPSTREAM_DNS_CLOUDFLARE_IPV6_1, UPSTREAM_DNS_CLOUDFLARE_IPV6_2 -> "Cloudflare Family (1.1.1.3)"
+            UPSTREAM_DNS_CLEANBROWSING_IPV4, UPSTREAM_DNS_CLEANBROWSING_IPV6 -> "CleanBrowsing Adult Filter"
+            UPSTREAM_DNS_ADGUARD_FAMILY_IPV4, UPSTREAM_DNS_ADGUARD_FAMILY_IPV6 -> "AdGuard Family DNS"
+            else -> ip
+        }
+
+        fun setSessionLogPaused(paused: Boolean) {
+            _isSessionLogPaused.value = paused
+        }
+
+        fun clearSessionLogs() {
+            _recentLogs.value = emptyList()
+        }
+
         /**
-         * Records a DNS link evaluation decision into live telemetry counters and logs.
-         * Also used by the interactive DNS tester so users can watch real-time decisions in the Telemetry Stream.
+         * Records a DNS link evaluation decision into live RAM telemetry counters and logs.
+         * Never persists URLs or queried domains to disk.
          */
         fun recordDnsDecision(
             domain: String,
@@ -681,6 +717,7 @@ open class DnsBlockerVpnService : VpnService() {
             isSafeSearch: Boolean,
             reason: String
         ) {
+            if (_isSessionLogPaused.value) return
             val entry = DnsLogEntry(
                 domain = domain,
                 recordType = type,
@@ -697,29 +734,90 @@ open class DnsBlockerVpnService : VpnService() {
         }
 
         /**
+         * Read-only inspection explaining which rule category handles [rawDomain] without altering counters.
+         */
+        fun inspectDomainLookup(rawDomain: String): DomainLookupOutcome {
+            val clean = rawDomain.trim().lowercase()
+                .removePrefix("https://")
+                .removePrefix("http://")
+                .substringBefore("/")
+                .trimEnd('.')
+
+            if (clean.isEmpty() || !clean.contains('.')) {
+                return DomainLookupOutcome(
+                    domain = clean,
+                    category = DomainCategory.INVALID,
+                    title = "Enter a valid hostname",
+                    detail = "Type a domain like www.google.co.in, pornhub.com, or wikipedia.org.",
+                    isEditable = false
+                )
+            }
+
+            val vipTarget = safeSearchManager.describeMatch(clean)
+            if (vipTarget != null) {
+                return DomainLookupOutcome(
+                    domain = clean,
+                    category = DomainCategory.SAFESEARCH_VIP,
+                    title = "SafeSearch VIP",
+                    detail = "Enforced automatically -> $vipTarget",
+                    isEditable = false
+                )
+            }
+
+            if (blocklistMatcher.isHardcodedAdultDomain(clean)) {
+                return DomainLookupOutcome(
+                    domain = clean,
+                    category = DomainCategory.ADULT_SHIELD,
+                    title = "Adult Shield (Immutable)",
+                    detail = "Blocked permanently via local 0.0.0.0 sinkhole. Cannot be allowlisted.",
+                    isEditable = false
+                )
+            }
+
+            val blockRes = blocklistMatcher.isBlocked(clean)
+            if (blockRes.isBlocked) {
+                return DomainLookupOutcome(
+                    domain = clean,
+                    category = DomainCategory.CUSTOM_RULE,
+                    title = "Custom User Rule",
+                    detail = "Blocked via 0.0.0.0 sinkhole unless Temporary Bypass or removal completes.",
+                    isEditable = true
+                )
+            }
+
+            return DomainLookupOutcome(
+                domain = clean,
+                category = DomainCategory.ALLOWED,
+                title = "Allowed",
+                detail = "Clean domain resolved upstream via ${_activeUpstreamLabel.value}.",
+                isEditable = false
+            )
+        }
+
+        /**
          * Evaluates a domain through the exact 3-tier DNS pipeline and logs it to the live Telemetry Stream.
          */
         fun simulateDnsPipelineLookup(domain: String): DnsLogEntry {
-            val clean = domain.trim().lowercase().removePrefix("https://").removePrefix("http://").substringBefore("/")
+            val clean = domain.trim().lowercase().removePrefix("https://").removePrefix("http://").substringBefore("/").trimEnd('.')
             val total = _totalQueries.incrementAndGet()
             totalQueriesCount.value = total
 
-            // Tier 1: SafeSearch VIP check
-            val vipTarget = when (clean) {
-                "google.com", "www.google.com" -> "216.239.38.120 (Google SafeSearch VIP)"
-                "youtube.com", "www.youtube.com", "m.youtube.com" -> "216.239.38.119 (YouTube Restricted VIP)"
-                "bing.com", "www.bing.com" -> "204.79.197.220 (Bing Strict VIP)"
-                "duckduckgo.com", "www.duckduckgo.com" -> "safe.duckduckgo.com (DDG Safe VIP)"
-                else -> null
-            }
-
+            // Tier 1: SafeSearch VIP check (uses full SafeSearchManager matcher)
+            val vipTarget = safeSearchManager.describeMatch(clean)
             if (vipTarget != null) {
                 val safeCount = _safeSearchQueries.incrementAndGet()
                 safeSearchQueriesCount.value = safeCount
                 val reason = "Tier 1: Forced Strict SafeSearch -> $vipTarget"
-                recordDnsDecision(clean, "SafeSearch VIP", isBlocked = false, isSafeSearch = true, reason = reason)
+                val entry = DnsLogEntry(
+                    domain = clean,
+                    recordType = "SafeSearch VIP",
+                    isBlocked = false,
+                    isSafeSearchRewritten = true,
+                    reason = reason
+                )
+                recordDnsDecision(clean, entry.recordType, entry.isBlocked, entry.isSafeSearchRewritten, reason)
                 statsManager?.recordDnsQuery(isBlocked = false, isSafeSearch = true)
-                return _recentLogs.value.first()
+                return _recentLogs.value.firstOrNull() ?: entry
             }
 
             // Tier 2: Blocklist & Custom Shield check
@@ -728,18 +826,32 @@ open class DnsBlockerVpnService : VpnService() {
                 val blockedCount = _blockedQueries.incrementAndGet()
                 blockedQueriesCount.value = blockedCount
                 val reason = "Tier 2 Sinkhole: ${blockRes.reason} -> 0.0.0.0"
-                recordDnsDecision(clean, "Blocked (0.0.0.0)", isBlocked = true, isSafeSearch = false, reason = reason)
+                val entry = DnsLogEntry(
+                    domain = clean,
+                    recordType = "Blocked (0.0.0.0)",
+                    isBlocked = true,
+                    isSafeSearchRewritten = false,
+                    reason = reason
+                )
+                recordDnsDecision(clean, entry.recordType, entry.isBlocked, entry.isSafeSearchRewritten, reason)
                 statsManager?.recordDnsQuery(isBlocked = true, isSafeSearch = false)
-                return _recentLogs.value.first()
+                return _recentLogs.value.firstOrNull() ?: entry
             }
 
             // Tier 3: Allowed via Family DNS
             val allowedCount = _allowedQueries.incrementAndGet()
             allowedQueriesCount.value = allowedCount
-            val reason = "Tier 3 Allowed: Clean domain resolved via 1.1.1.3 (Cloudflare Family)"
-            recordDnsDecision(clean, "Allowed (1.1.1.3)", isBlocked = false, isSafeSearch = false, reason = reason)
+            val reason = "Tier 3 Allowed: Clean domain resolved via ${_activeUpstreamLabel.value}"
+            val entry = DnsLogEntry(
+                domain = clean,
+                recordType = "Allowed (1.1.1.3)",
+                isBlocked = false,
+                isSafeSearchRewritten = false,
+                reason = reason
+            )
+            recordDnsDecision(clean, entry.recordType, entry.isBlocked, entry.isSafeSearchRewritten, reason)
             statsManager?.recordDnsQuery(isBlocked = false, isSafeSearch = false)
-            return _recentLogs.value.first()
+            return _recentLogs.value.firstOrNull() ?: entry
         }
 
         fun formatSpeed(bytesPerSec: Long): String {
@@ -795,4 +907,20 @@ open class DnsBlockerVpnService : VpnService() {
         }
     }
 }
+
+enum class DomainCategory {
+    SAFESEARCH_VIP,
+    ADULT_SHIELD,
+    CUSTOM_RULE,
+    ALLOWED,
+    INVALID
+}
+
+data class DomainLookupOutcome(
+    val domain: String,
+    val category: DomainCategory,
+    val title: String,
+    val detail: String,
+    val isEditable: Boolean
+)
 

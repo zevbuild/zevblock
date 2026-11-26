@@ -3,7 +3,10 @@ package com.zevbuild.zevblock.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -18,9 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -28,9 +29,9 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -39,11 +40,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,34 +51,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zevbuild.zevblock.core.security.TamperLockManager
+import com.zevbuild.zevblock.ui.components.PartnerUnlockGateDialog
+import com.zevbuild.zevblock.ui.components.SegmentedOtpInput
+import com.zevbuild.zevblock.ui.components.ZevStatusBadge
+import com.zevbuild.zevblock.ui.components.formatDurationClock
 import com.zevbuild.zevblock.ui.qr.QrCodeView
-import com.zevbuild.zevblock.ui.theme.ShieldAmber
-import com.zevbuild.zevblock.ui.theme.ShieldBorderDark
-import com.zevbuild.zevblock.ui.theme.ShieldCardDark
-import com.zevbuild.zevblock.ui.theme.ShieldGreen
-import com.zevbuild.zevblock.ui.theme.ShieldGreenDark
-import com.zevbuild.zevblock.ui.theme.ShieldNavyDark
-import com.zevbuild.zevblock.ui.theme.ShieldRed
-import com.zevbuild.zevblock.ui.theme.ShieldSurfaceDark
-import com.zevbuild.zevblock.ui.theme.ShieldTeal
-import com.zevbuild.zevblock.ui.theme.TextMutedDark
-import com.zevbuild.zevblock.ui.theme.TextPrimaryDark
-import com.zevbuild.zevblock.ui.theme.TextSecondaryDark
+import com.zevbuild.zevblock.ui.theme.ZevTheme
+import kotlinx.coroutines.delay
 
 /**
- * Accountability Partner Setup & QR Code Screen:
- * Displays the RFC 6238 visual QR Code for scanning with Google Authenticator,
- * Base32 manual keys, and verification tester.
+ * Accountability Partner Vault Screen ("Partner"):
+ * - Enforces Vault hiding once pairing is verified so the QR code & Base32 secret cannot be
+ *   re-scanned or overwritten without Partner TOTP or a 24-hour Cooldown.
+ * - Surfaces live TamperLockManager brute-force lockout timers clearly.
+ * - Uses 6-digit segmented numeric OTP controls for verification and temporary bypass windows.
  */
 @Composable
 fun PartnerSetupScreen(
@@ -88,22 +81,59 @@ fun PartnerSetupScreen(
     cooldownRemainingMs: Long,
     isBypassActive: Boolean = false,
     bypassRemainingMs: Long = 0L,
-    onStartCooldown: (Long) -> Unit,
+    onStartCooldown: (Long, String) -> Unit,
     onCancelCooldown: () -> Unit,
+    onCompleteCooldownUnpair: () -> Unit = {},
     onStartBypass: (Long) -> Unit = {},
-    onCancelBypass: () -> Unit = {}
+    onCancelBypass: () -> Unit = {},
+    onPartnerStateChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val colors = ZevTheme.colors
     val scrollState = rememberScrollState()
 
     var partnerSecret by remember { mutableStateOf(tamperLockManager.getPartnerSecret()) }
     var totpUri by remember { mutableStateOf(tamperLockManager.getPartnerTotpUri()) }
+    var isPairingConfirmed by remember { mutableStateOf(tamperLockManager.isPairingConfirmed()) }
+    var isVaultTemporarilyRevealed by remember { mutableStateOf(false) }
+
     var verificationInput by remember { mutableStateOf("") }
     var verificationResult by remember { mutableStateOf<Boolean?>(null) }
+    var lockoutRemainingMs by remember { mutableLongStateOf(tamperLockManager.getLockoutRemainingMs()) }
+    var showRevealVaultGate by remember { mutableStateOf(false) }
 
-    fun refreshSecret() {
+    LaunchedEffect(lockoutRemainingMs) {
+        while (lockoutRemainingMs > 0L) {
+            delay(1000L)
+            lockoutRemainingMs = tamperLockManager.getLockoutRemainingMs()
+        }
+    }
+
+    fun refreshSecretState() {
         partnerSecret = tamperLockManager.getPartnerSecret()
         totpUri = tamperLockManager.getPartnerTotpUri()
+        isPairingConfirmed = tamperLockManager.isPairingConfirmed()
+        lockoutRemainingMs = tamperLockManager.getLockoutRemainingMs()
+        onPartnerStateChanged()
+    }
+
+    if (showRevealVaultGate) {
+        PartnerUnlockGateDialog(
+            title = "Partner Vault Authorization",
+            description = "Verify your partner's 6-digit TOTP code to reveal, regenerate, or unpair your accountability key.",
+            tamperLockManager = tamperLockManager,
+            cooldownPurpose = TamperLockManager.COOLDOWN_PURPOSE_UNPAIR,
+            cooldownDurationMs = TamperLockManager.COOLDOWN_24_HOURS_MS,
+            onDismiss = { showRevealVaultGate = false },
+            onAuthorized = {
+                isVaultTemporarilyRevealed = true
+                showRevealVaultGate = false
+                refreshSecretState()
+            },
+            onCooldownStarted = {
+                onStartCooldown(TamperLockManager.COOLDOWN_24_HOURS_MS, TamperLockManager.COOLDOWN_PURPOSE_UNPAIR)
+            }
+        )
     }
 
     Column(
@@ -111,88 +141,142 @@ fun PartnerSetupScreen(
             .fillMaxSize()
             .verticalScroll(scrollState)
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Header
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(ShieldSurfaceDark)
-                .border(1.dp, ShieldBorderDark, RoundedCornerShape(16.dp))
-                .padding(20.dp)
-        ) {
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(ShieldTeal.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCode2,
-                            contentDescription = null,
-                            tint = ShieldTeal,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = "Accountability Partner Lock",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimaryDark
-                        )
-                        Text(
-                            text = "Offline RFC 6238 TOTP Two-Person Rule",
-                            fontSize = 12.sp,
-                            color = ShieldTeal
-                        )
-                    }
+        // Lockout Alert Banner (shown whenever throttled by TamperLockManager)
+        if (lockoutRemainingMs > 0L) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("partner_lockout_banner"),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = colors.red.copy(alpha = 0.14f)),
+                border = BorderStroke(1.dp, colors.red)
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = colors.red, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Too many invalid TOTP attempts. Verification locked for ${formatDurationClock(lockoutRemainingMs)}.",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.red
+                    )
                 }
             }
         }
 
-        // QR Code Pairing Card
+        // 1. Vault / Pairing Card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("qr_pairing_card"),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
+            colors = CardDefaults.cardColors(containerColor = colors.surface),
+            border = BorderStroke(
+                1.dp,
+                if (partnerSecret != null && isPairingConfirmed) colors.green.copy(alpha = 0.65f) else colors.border
+            )
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
+                    .padding(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (partnerSecret != null && totpUri != null) {
+                if (partnerSecret != null && isPairingConfirmed && !isVaultTemporarilyRevealed) {
+                    // SECURED VAULT STATE: Key & QR are concealed to prevent self-rescan/bypass
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.green.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Lock, contentDescription = null, tint = colors.green, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Partner Vault Protected",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.textPrimary
+                                )
+                                Text(
+                                    text = "Keystore-encrypted • Key hidden from device",
+                                    fontSize = 12.sp,
+                                    color = colors.textSecondary
+                                )
+                            }
+                        }
+                        ZevStatusBadge(label = "LOCKED", color = colors.green)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Scan with Friend's Authenticator",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Have your trusted friend open Google Authenticator, Aegis, Bitwarden, or 2FAS and scan this code.",
+                        text = "For anti-bypass integrity, your QR code and Base32 secret are concealed once paired. Ask your partner for a 6-digit code to view or reset pairing.",
                         fontSize = 12.sp,
-                        color = TextSecondaryDark,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 17.sp
+                        color = colors.textSecondary,
+                        lineHeight = 18.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    OutlinedButton(
+                        onClick = { showRevealVaultGate = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, colors.border)
+                    ) {
+                        Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.teal)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Reveal Key or Unpair (Requires Partner)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.teal)
+                    }
+                } else if (partnerSecret != null && totpUri != null) {
+                    // PAIRING OR TEMPORARILY REVEALED STATE
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isVaultTemporarilyRevealed) "Partner Key Unlocked" else "Step 1: Share Key With Partner",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.textPrimary
+                        )
+                        if (isVaultTemporarilyRevealed) {
+                            OutlinedButton(
+                                onClick = { isVaultTemporarilyRevealed = false },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Hide Key", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.green)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Have your friend scan this QR in Google Authenticator, Aegis, Bitwarden, or 2FAS—or tap Open Authenticator.",
+                        fontSize = 12.sp,
+                        color = colors.textSecondary,
+                        textAlign = TextAlign.Center
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    // QR Code View Canvas
                     Box(
                         modifier = Modifier
-                            .size(220.dp)
+                            .size(210.dp)
                             .testTag("partner_qr_code_view"),
                         contentAlignment = Alignment.Center
                     ) {
@@ -202,24 +286,16 @@ fun PartnerSetupScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    // Secret text box
-                    Text(
-                        text = "Secret Key (Base32):",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TextSecondaryDark
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-
+                    // Accessible Copy Base32 Box (48dp touch target)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ShieldNavyDark)
-                            .border(1.dp, ShieldBorderDark, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.background)
+                            .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -230,303 +306,275 @@ fun PartnerSetupScreen(
                                 text = partnerSecret!!,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = ShieldGreen,
+                                fontSize = 12.sp,
+                                color = colors.green,
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(
                                 onClick = { copyToClipboard(context, partnerSecret!!, "Secret copied!") },
-                                modifier = Modifier.size(30.dp)
+                                modifier = Modifier.size(48.dp)
                             ) {
-                                Icon(imageVector = Icons.Default.ContentCopy, contentDescription = "Copy Secret", tint = TextSecondaryDark, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy Secret", tint = colors.textSecondary, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { copyToClipboard(context, totpUri!!, "otpauth:// URI copied!") },
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { openUriInAuthenticator(context, totpUri!!) },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.teal),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Copy URI", fontSize = 11.sp, color = ShieldTeal)
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp), tint = colors.tealBtnFg)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Open Authenticator", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.tealBtnFg)
                         }
 
                         OutlinedButton(
-                            onClick = {
-                                val newSec = tamperLockManager.setupNewPartnerSecret()
-                                refreshSecret()
-                                verificationResult = null
-                                Toast.makeText(context, "Regenerated New Partner Key", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
+                            onClick = { copyToClipboard(context, totpUri!!, "otpauth:// URI copied!") },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, colors.border)
                         ) {
-                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Regenerate", fontSize = 11.sp, color = TextPrimaryDark)
+                            Text("Copy URI", fontSize = 12.sp, color = colors.textPrimary)
+                        }
+                    }
+
+                    if (isVaultTemporarilyRevealed) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    tamperLockManager.setupNewPartnerSecret()
+                                    isVaultTemporarilyRevealed = false
+                                    verificationResult = null
+                                    refreshSecretState()
+                                    Toast.makeText(context, "Generated New Partner Key — Verify First Code", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = colors.textPrimary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Rotate Key", fontSize = 12.sp, color = colors.textPrimary)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    tamperLockManager.clearPartnerSecret()
+                                    isVaultTemporarilyRevealed = false
+                                    verificationResult = null
+                                    refreshSecretState()
+                                    Toast.makeText(context, "Partner pairing removed", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, colors.red.copy(alpha = 0.6f))
+                            ) {
+                                Text("Unpair", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.red)
+                            }
                         }
                     }
                 } else {
-                    Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = ShieldTeal, modifier = Modifier.size(48.dp))
+                    // UNPAIRED EMPTY STATE
+                    Icon(Icons.Default.QrCode2, contentDescription = null, tint = colors.teal, modifier = Modifier.size(48.dp))
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "No Accountability Partner Paired",
+                        text = "Pair Accountability Partner",
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
-                        color = TextPrimaryDark
+                        color = colors.textPrimary
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Generate a cryptographic 160-bit Base32 secret for your friend to hold. You will not be able to bypass protection without their code.",
+                        text = "Generate an offline 160-bit TOTP key for a trusted friend to hold. Works with zero accounts or internet connection.",
                         fontSize = 12.sp,
-                        color = TextSecondaryDark,
+                        color = colors.textSecondary,
                         textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     Button(
                         onClick = {
                             tamperLockManager.setupNewPartnerSecret()
-                            refreshSecret()
-                            Toast.makeText(context, "Generated Partner Secret", Toast.LENGTH_SHORT).show()
+                            refreshSecretState()
+                            Toast.makeText(context, "Generated Secret — Confirm Partner Code Below", Toast.LENGTH_SHORT).show()
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = ShieldTeal),
-                        shape = RoundedCornerShape(8.dp)
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.teal),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Generate Secret & Show QR Code", fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Generate Secret & QR Code", fontWeight = FontWeight.Bold, color = colors.tealBtnFg)
                     }
                 }
             }
         }
 
-        // Verification Card
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("totp_verification_card"),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
-        ) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text(
-                    text = "Verify Friend's 6-Digit Code",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimaryDark
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Ask your friend for the current rolling code showing in their authenticator app to confirm pairing.",
-                    fontSize = 12.sp,
-                    color = TextSecondaryDark
-                )
+        // 2. Verification Card (locks secret automatically upon first confirmation!)
+        if (partnerSecret != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("totp_verification_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = colors.surface),
+                border = BorderStroke(1.dp, colors.border)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = if (!isPairingConfirmed) "Step 2: Verify Partner's First Code to Lock" else "Test Partner TOTP Code",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textPrimary
+                    )
+                    Text(
+                        text = if (!isPairingConfirmed) "Enter the 6-digit code from your partner's authenticator to confirm pairing and hide the key."
+                        else "Verify a rolling 6-digit code with replay protection and +/-30s clock tolerance.",
+                        fontSize = 12.sp,
+                        color = colors.textSecondary
+                    )
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
+                    SegmentedOtpInput(
                         value = verificationInput,
-                        onValueChange = { if (it.length <= 6) verificationInput = it },
-                        placeholder = { Text("000000", color = TextMutedDark) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("partner_verification_input"),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ShieldTeal,
-                            unfocusedBorderColor = ShieldBorderDark,
-                            focusedTextColor = TextPrimaryDark,
-                            unfocusedTextColor = TextPrimaryDark
-                        )
+                        onValueChange = {
+                            verificationInput = it
+                            verificationResult = null
+                        },
+                        inputTestTag = "partner_verification_input"
                     )
 
                     Button(
                         onClick = {
                             val valid = tamperLockManager.verifyPartnerTotp(verificationInput)
                             verificationResult = valid
+                            lockoutRemainingMs = tamperLockManager.getLockoutRemainingMs()
+                            if (valid) {
+                                isVaultTemporarilyRevealed = false
+                                verificationInput = ""
+                                refreshSecretState()
+                            }
                         },
-                        modifier = Modifier
-                            .height(56.dp)
-                            .testTag("partner_verify_button"),
-                        colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Verify", fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-                }
-
-                if (verificationResult != null) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    val isSuccess = verificationResult == true
-                    Box(
+                        enabled = verificationInput.length == 6 && lockoutRemainingMs <= 0L,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (isSuccess) ShieldGreen.copy(alpha = 0.15f)
-                                else ShieldRed.copy(alpha = 0.15f)
-                            )
-                            .border(
-                                1.dp,
-                                if (isSuccess) ShieldGreen.copy(alpha = 0.4f) else ShieldRed.copy(alpha = 0.4f),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .padding(10.dp)
+                            .height(48.dp)
+                            .testTag("partner_verify_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.greenBtn),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = if (isSuccess) Icons.Default.CheckCircle else Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = if (isSuccess) ShieldGreen else ShieldRed,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (isSuccess) "Pairing confirmed! Rolling TOTP verified successfully."
-                                else "Code mismatch. Ensure phone clocks are synchronized.",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = if (isSuccess) ShieldGreen else ShieldRed
-                            )
+                        Text(
+                            text = if (!isPairingConfirmed) "Confirm Pairing & Lock Vault" else "Verify Rolling Code",
+                            fontWeight = FontWeight.Bold,
+                            color = colors.greenBtnFg
+                        )
+                    }
+
+                    if (verificationResult != null) {
+                        val isSuccess = verificationResult == true
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background((if (isSuccess) colors.green else colors.red).copy(alpha = 0.14f))
+                                .border(1.dp, (if (isSuccess) colors.green else colors.red).copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                                .padding(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (isSuccess) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = if (isSuccess) colors.green else colors.red,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = when {
+                                        isSuccess -> "Pairing confirmed! Key hidden in protected vault."
+                                        lockoutRemainingMs > 0L -> "Too many invalid attempts. Wait ${formatDurationClock(lockoutRemainingMs)}."
+                                        else -> "Code mismatch or already used. Check device clock & ask for next code."
+                                    },
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (isSuccess) colors.green else colors.red
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Temporary Bypass Card (TOTP Authorized)
+        // 3. Temporary Bypass Card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("partner_temporary_bypass_card"),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-            border = CardDefaults.outlinedCardBorder().copy(
-                brush = androidx.compose.ui.graphics.SolidColor(
-                    if (isBypassActive) ShieldAmber else ShieldTeal
-                )
-            )
+            colors = CardDefaults.cardColors(containerColor = colors.surface),
+            border = BorderStroke(1.dp, if (isBypassActive) colors.amber else colors.border)
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.LockOpen,
-                            contentDescription = null,
-                            tint = if (isBypassActive) ShieldAmber else ShieldTeal,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Icon(Icons.Default.LockOpen, contentDescription = null, tint = if (isBypassActive) colors.amberSoftText else colors.teal, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Temporary Bypass Window",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimaryDark
-                        )
+                        Text("Temporary Bypass Window", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
                     }
-
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isBypassActive) ShieldAmber.copy(alpha = 0.15f) else ShieldTeal.copy(alpha = 0.15f)
-                    ) {
-                        Text(
-                            text = if (isBypassActive) "ACTIVE" else "REQUIRES PARTNER",
-                            color = if (isBypassActive) ShieldAmber else ShieldTeal,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+                    ZevStatusBadge(
+                        label = if (isBypassActive) "ACTIVE" else "PARTNER AUTH",
+                        color = if (isBypassActive) colors.amber else colors.teal
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Temporarily suspend your custom-added keyword and domain rules with your partner's 6-digit TOTP approval. Zero-Bypass Guarantee: Adult pornography, explicit searches, and incognito blocking remain strictly active at all times.",
+                    text = "Temporarily suspends custom-added rules & Settings guard with Partner approval. Adult domains, explicit keywords, SafeSearch VIP, and Incognito blocks stay strictly locked.",
                     fontSize = 12.sp,
-                    color = TextSecondaryDark,
+                    color = colors.textSecondary,
                     lineHeight = 17.sp
                 )
-
-                Spacer(modifier = Modifier.height(14.dp))
 
                 if (isBypassActive) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ShieldNavyDark)
-                            .border(1.dp, ShieldAmber, RoundedCornerShape(8.dp))
-                            .padding(16.dp),
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.background)
+                            .border(1.dp, colors.amber, RoundedCornerShape(10.dp))
+                            .padding(14.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "TEMPORARY BYPASS RUNNING",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ShieldAmber
-                            )
+                            Text("BYPASS REMAINING", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.amberSoftText)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = formatMs(bypassRemainingMs),
-                                fontSize = 32.sp,
+                                text = formatDurationClock(bypassRemainingMs),
+                                fontSize = 28.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
-                                color = ShieldAmber
+                                color = colors.amberSoftText
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "All filters will automatically re-lock at 00:00",
-                                fontSize = 11.sp,
-                                color = TextSecondaryDark
-                            )
+                            Text("Auto re-locks at 00:00", fontSize = 11.sp, color = colors.textMuted)
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
                     Button(
                         onClick = onCancelBypass,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = ShieldRed),
-                        shape = RoundedCornerShape(8.dp)
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.redBtn),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("End Bypass & Re-Lock Protections Now", fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("End Bypass & Re-Lock Now", fontWeight = FontWeight.Bold, color = colors.redBtnFg)
                     }
                 } else {
                     var selectedDurationMs by remember { mutableLongStateOf(TamperLockManager.BYPASS_15_MIN_MS) }
                     var bypassTotpInput by remember { mutableStateOf("") }
                     var bypassError by remember { mutableStateOf<String?>(null) }
 
-                    Text(
-                        text = "Select Bypass Duration:",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TextSecondaryDark
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(
                             TamperLockManager.BYPASS_15_MIN_MS to "15 Min",
                             TamperLockManager.BYPASS_30_MIN_MS to "30 Min",
@@ -536,197 +584,176 @@ fun PartnerSetupScreen(
                             OutlinedButton(
                                 onClick = { selectedDurationMs = ms },
                                 modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = if (isSelected) ShieldTeal.copy(alpha = 0.2f) else Color.Transparent
+                                    containerColor = if (isSelected) colors.teal.copy(alpha = 0.16f) else colors.background
                                 ),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (isSelected) ShieldTeal else ShieldBorderDark
-                                )
+                                border = BorderStroke(1.dp, if (isSelected) colors.teal else colors.border)
                             ) {
                                 Text(
                                     text = label,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) ShieldTeal else TextSecondaryDark
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) colors.teal else colors.textSecondary
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    SegmentedOtpInput(
+                        value = bypassTotpInput,
+                        onValueChange = {
+                            bypassTotpInput = it
+                            bypassError = null
+                        },
+                        inputTestTag = "bypass_totp_input"
+                    )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = bypassTotpInput,
-                            onValueChange = {
-                                if (it.length <= 6) {
-                                    bypassTotpInput = it
-                                    bypassError = null
-                                }
-                            },
-                            placeholder = { Text("Partner 6-digit TOTP", color = TextMutedDark, fontSize = 12.sp) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = ShieldTeal,
-                                unfocusedBorderColor = ShieldBorderDark,
-                                focusedTextColor = TextPrimaryDark,
-                                unfocusedTextColor = TextPrimaryDark
-                            )
-                        )
-
-                        Button(
-                            onClick = {
-                                val success = tamperLockManager.activateBypassWithTotp(bypassTotpInput, selectedDurationMs)
-                                if (success) {
-                                    onStartBypass(selectedDurationMs)
-                                    bypassTotpInput = ""
-                                    bypassError = null
-                                    Toast.makeText(context, "Temporary Bypass Activated!", Toast.LENGTH_SHORT).show()
+                    Button(
+                        onClick = {
+                            val ok = tamperLockManager.activateBypassWithTotp(bypassTotpInput, selectedDurationMs)
+                            lockoutRemainingMs = tamperLockManager.getLockoutRemainingMs()
+                            if (ok) {
+                                onStartBypass(selectedDurationMs)
+                                bypassTotpInput = ""
+                                Toast.makeText(context, "Temporary Bypass Activated", Toast.LENGTH_SHORT).show()
+                            } else {
+                                bypassError = if (lockoutRemainingMs > 0L) {
+                                    "Locked out for ${formatDurationClock(lockoutRemainingMs)}."
                                 } else {
-                                    bypassError = "Invalid partner code! Check friend's authenticator app."
+                                    "Invalid or replayed code. Ask partner for next code."
                                 }
-                            },
-                            modifier = Modifier.height(56.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = ShieldAmber),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("Bypass", fontWeight = FontWeight.Bold, color = ShieldNavyDark)
-                        }
+                            }
+                        },
+                        enabled = partnerSecret != null && bypassTotpInput.length == 6 && lockoutRemainingMs <= 0L,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.amber),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Start Partner-Approved Bypass", fontWeight = FontWeight.Bold, color = colors.amberBtnFg)
                     }
 
                     if (bypassError != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = bypassError!!,
-                            color = ShieldRed,
-                            fontSize = 11.sp
-                        )
+                        Text(text = bypassError!!, color = colors.red, fontSize = 12.sp)
                     }
                 }
             }
         }
 
-        // Cooldown Timer Card
+        // 4. Emergency Monotonic Cooldown Delay Card (real unlock targets only)
+        val isCooldownFinished = tamperLockManager.isCooldownFinished()
+        val cooldownPurpose = tamperLockManager.getCooldownPurpose()
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("partner_cooldown_card"),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
+            colors = CardDefaults.cardColors(containerColor = colors.surface),
+            border = BorderStroke(1.dp, colors.border)
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.HourglassBottom, contentDescription = null, tint = ShieldAmber, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.HourglassBottom, contentDescription = null, tint = colors.amberSoftText, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Tamper Delay (Cooldown)",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimaryDark
-                        )
+                        Text("Emergency Timed Delay", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
                     }
-
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isCooldownActive) ShieldAmber.copy(alpha = 0.15f) else ShieldGreen.copy(alpha = 0.15f)
-                    ) {
-                        Text(
-                            text = if (isCooldownActive) "COUNTING DOWN" else "READY",
-                            color = if (isCooldownActive) ShieldAmber else ShieldGreen,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+                    ZevStatusBadge(
+                        label = when {
+                            isCooldownFinished -> "READY"
+                            isCooldownActive -> "ACTIVE"
+                            else -> "STANDBY"
+                        },
+                        color = if (isCooldownFinished) colors.green else if (isCooldownActive) colors.amber else colors.textMuted
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Enforces a mandatory delay before protections can be lifted, verified against the hardware monotonic clock (SystemClock.elapsedRealtime()).",
+                    text = "If your partner is unreachable, schedule a monotonic clock delay (verified via SystemClock.elapsedRealtime()) before unpairing or changing locks.",
                     fontSize = 12.sp,
-                    color = TextSecondaryDark
+                    color = colors.textSecondary
                 )
-
-                Spacer(modifier = Modifier.height(14.dp))
 
                 if (isCooldownActive) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ShieldNavyDark)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.background)
+                            .border(1.dp, colors.amber, RoundedCornerShape(10.dp))
                             .padding(14.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = formatMs(cooldownRemainingMs),
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            color = ShieldAmber
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = formatDurationClock(cooldownRemainingMs),
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = colors.amberSoftText
+                            )
+                            Text("Purpose: $cooldownPurpose", fontSize = 11.sp, color = colors.textMuted)
+                        }
                     }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
                     OutlinedButton(
                         onClick = onCancelCooldown,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, colors.red.copy(alpha = 0.6f))
                     ) {
-                        Text("Cancel Cooldown", color = ShieldRed, fontSize = 12.sp)
+                        Text("Cancel Cooldown & Stay Protected", color = colors.red, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                } else if (isCooldownFinished) {
+                    Button(
+                        onClick = {
+                            if (tamperLockManager.consumeCompletedCooldown()) {
+                                if (cooldownPurpose == TamperLockManager.COOLDOWN_PURPOSE_UNPAIR) {
+                                    tamperLockManager.clearPartnerSecret()
+                                    refreshSecretState()
+                                    onCompleteCooldownUnpair()
+                                }
+                                Toast.makeText(context, "Completed delayed unlock", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.greenBtn),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Button(
-                            onClick = { onStartCooldown(60_000L) },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = ShieldSurfaceDark),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("1 Min Test", fontSize = 12.sp, color = TextPrimaryDark)
-                        }
-
-                        Button(
-                            onClick = { onStartCooldown(300_000L) },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("5 Min Lock", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
+                        Text("Confirm Completed Unlock ($cooldownPurpose)", color = colors.greenBtnFg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                } else if (partnerSecret != null) {
+                    OutlinedButton(
+                        onClick = {
+                            onStartCooldown(TamperLockManager.COOLDOWN_24_HOURS_MS, TamperLockManager.COOLDOWN_PURPOSE_UNPAIR)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, colors.amber.copy(alpha = 0.65f))
+                    ) {
+                        Text("Request 24-Hour Partner Unpair Delay", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.amberSoftText)
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
-private fun formatMs(ms: Long): String {
-    val sec = ms / 1000
-    val min = sec / 60
-    val s = sec % 60
-    return String.format(java.util.Locale.US, "%02d:%02d", min, s)
+private fun openUriInAuthenticator(context: Context, uriString: String) {
+    try {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uriString)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        Toast.makeText(context, "No authenticator app on this device. Scan QR on your partner's phone.", Toast.LENGTH_LONG).show()
+    }
 }
 
 private fun copyToClipboard(context: Context, text: String, msg: String) {

@@ -46,12 +46,14 @@ class DomainBlocklistMatcher {
         }
 
         // 2. Check Custom User Rules (e.g. custom triggers, gambling, distracting domains)
-        if (isDomainInSet(domain, customRules)) {
+        val isCustom = synchronized(lock) { isDomainInSet(domain, customRules) }
+        if (isCustom) {
             return BlockResult(isBlocked = true, matchedRule = domain, reason = "Custom User Blocklist")
         }
 
         // 3. Check Allowlist (Only applicable to non-adult, non-custom domains)
-        if (isDomainInSet(domain, allowedDomains)) {
+        val isAllowed = synchronized(lock) { isDomainInSet(domain, allowedDomains) }
+        if (isAllowed) {
             return BlockResult(isBlocked = false, matchedRule = null, reason = "Explicitly allowed")
         }
 
@@ -153,7 +155,9 @@ class DomainBlocklistMatcher {
     fun addAllowedDomain(domain: String) {
         val clean = domain.lowercase().trimEnd('.')
         if (isValidDomain(clean) && !isHardcodedAdultDomain(clean)) {
-            allowedDomains.add(clean)
+            synchronized(lock) {
+                allowedDomains.add(clean)
+            }
         }
     }
 
@@ -161,8 +165,8 @@ class DomainBlocklistMatcher {
         val clean = domain.lowercase().trimEnd('.')
         synchronized(lock) {
             customRules.remove(clean)
+            allowedDomains.remove(clean)
         }
-        allowedDomains.remove(clean)
     }
 
     fun clearBlocklist() {

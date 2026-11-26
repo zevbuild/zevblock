@@ -15,10 +15,12 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import com.zevbuild.zevblock.R
 import com.zevbuild.zevblock.core.accessibility.BrowserUrlExtractor
 import com.zevbuild.zevblock.core.accessibility.NsfwContentDetector
 import com.zevbuild.zevblock.core.accessibility.SettingsTamperGuard
 import com.zevbuild.zevblock.core.diagnostics.CrashGuardManager
+import com.zevbuild.zevblock.core.prefs.ZevBlockPreferences
 import com.zevbuild.zevblock.core.security.TamperLockManager
 import com.zevbuild.zevblock.ui.overlay.OverlayManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +54,7 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     private fun ensureDependencies() {
+        ZevBlockPreferences.applyFromStorage(applicationContext)
         val tamperLockManager = TamperLockManager(applicationContext)
         if (statsManager == null) {
             statsManager = com.zevbuild.zevblock.core.stats.ProtectionStatsManager(
@@ -96,7 +99,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         }
 
         // Keep the messaging-app typing check immediate (it is cheap)
-        if (isNsfwFilterEnabled && isMessagingApp(packageName)) {
+        if (isNsfwFilterEnabled && isChatWarningEnabled && isMessagingApp(packageName)) {
             try {
                 val isBypassActive = TamperLockManager.isBypassActive(this)
                 val eventTexts = event.text
@@ -179,7 +182,9 @@ class ShieldAccessibilityService : AccessibilityService() {
                         this,
                         alertType = "Incognito Mode Blocked",
                         message = "Private and Incognito browsing is strictly prohibited under ZevBlock system safeguards.",
-                        detail = "Package: $packageName"
+                        detail = "Package: $packageName",
+                        category = "INCOGNITO GUARD",
+                        streakDays = statsManager?.streakDays?.value ?: 0
                     )
                     safeRecycle(rootNode)
                     return
@@ -203,9 +208,11 @@ class ShieldAccessibilityService : AccessibilityService() {
                         statsManager?.recordScreenBlock()
                         OverlayManager.triggerWarning(
                             this,
-                            alertType = "Explicit Content Blocked",
+                            alertType = "Pause & Stay Focused",
                             message = "Adult content, explicit keyword, or search query detected: '${nsfwResult.matchedTerm}'.",
-                            detail = extractedUrl
+                            detail = extractedUrl,
+                            category = if (nsfwResult.category == "Custom Blocked Keyword") "CUSTOM KEYWORD RULE" else "BUILT-IN ADULT SHIELD",
+                            streakDays = statsManager?.streakDays?.value ?: 0
                         )
                         safeRecycle(rootNode)
                         return
@@ -229,7 +236,9 @@ class ShieldAccessibilityService : AccessibilityService() {
                         this,
                         alertType = "Settings Access Restricted",
                         message = tamperEvent.reason,
-                        detail = tamperEvent.target
+                        detail = tamperEvent.target,
+                        category = "SETTINGS PROTECTION",
+                        streakDays = statsManager?.streakDays?.value ?: 0
                     )
                     safeRecycle(rootNode)
                     return
@@ -245,7 +254,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                 // Check if this is a messaging / chat app (WhatsApp, Telegram, Signal, etc.)
                 // In chat apps, monitor for vulgar keywords and display a warning toast/notification
                 // WITHOUT kicking the user out of the app.
-                if (isMessagingApp(packageName)) {
+                if (isChatWarningEnabled && isMessagingApp(packageName)) {
                     val windowNsfw = inspectWindowForNsfw(rootNode, depth = 0)
                     val shouldWarn = if (windowNsfw != null) {
                         if (isBypassActive) windowNsfw.category != "Custom Blocked Keyword" else true
@@ -263,7 +272,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                         safeRecycle(rootNode)
                         return
                     }
-                } else {
+                } else if (!isMessagingApp(packageName)) {
                     // Check if the window is an unlisted browser with an address bar
                     val extractedUrl = browserUrlExtractor.extractUrl(rootNode)
                     if (!extractedUrl.isNullOrBlank()) {
@@ -282,9 +291,11 @@ class ShieldAccessibilityService : AccessibilityService() {
                             statsManager?.recordScreenBlock()
                             OverlayManager.triggerWarning(
                                 this,
-                                alertType = "Explicit Content Blocked",
+                                alertType = "Pause & Stay Focused",
                                 message = "System-level adult content filter intercepted explicit URL: '${nsfwResult.matchedTerm}'.",
-                                detail = extractedUrl
+                                detail = extractedUrl,
+                                category = if (nsfwResult.category == "Custom Blocked Keyword") "CUSTOM KEYWORD RULE" else "BUILT-IN ADULT SHIELD",
+                                streakDays = statsManager?.streakDays?.value ?: 0
                             )
                             safeRecycle(rootNode)
                             return
@@ -304,9 +315,11 @@ class ShieldAccessibilityService : AccessibilityService() {
                             statsManager?.recordScreenBlock()
                             OverlayManager.triggerWarning(
                                 this,
-                                alertType = "Explicit Content Blocked",
+                                alertType = "Pause & Stay Focused",
                                 message = "System safeguard intercepted explicit adult material on screen: '${windowNsfw.matchedTerm}'.",
-                                detail = "App: $packageName"
+                                detail = "App: $packageName",
+                                category = if (windowNsfw.category == "Custom Blocked Keyword") "CUSTOM KEYWORD RULE" else "BUILT-IN ADULT SHIELD",
+                                streakDays = statsManager?.streakDays?.value ?: 0
                             )
                             safeRecycle(rootNode)
                             return
@@ -412,9 +425,9 @@ class ShieldAccessibilityService : AccessibilityService() {
                 }
 
                 val notification = NotificationCompat.Builder(this, CHAT_WARNING_CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.stat_notify_error)
-                    .setContentTitle("⚠️ Vulgar Word Detected")
-                    .setContentText("Keyword '$matchedTerm' detected in chat. Please avoid vulgarity.")
+                    .setSmallIcon(R.drawable.ic_stat_zevblock_shield)
+                    .setContentTitle("ZevBlock Accountability Reminder")
+                    .setContentText("Keyword '$matchedTerm' detected in chat. Keep conversations clean.")
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setAutoCancel(true)
                     .setTimeoutAfter(8000L)
@@ -495,6 +508,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         // Configurable Guard Toggles
         var isIncognitoBlockEnabled: Boolean = true
         var isNsfwFilterEnabled: Boolean = true
+        var isChatWarningEnabled: Boolean = true
         var isSettingsGuardEnabled: Boolean = true
 
         private val _isServiceActive = MutableStateFlow(false)
