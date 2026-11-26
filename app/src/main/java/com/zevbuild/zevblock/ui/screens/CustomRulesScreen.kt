@@ -280,7 +280,7 @@ fun CustomRulesScreen(
                                                 Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
                                                 if (isDomain) domainInput = "" else keywordInput = ""
                                             }
-                                            is RuleOperationResult.AlreadyExists,
+                                            is RuleOperationResult.AlreadyExists -> Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
                                             is RuleOperationResult.ProtectedBySystem -> Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
                                             is RuleOperationResult.InvalidInput -> Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
                                             else -> {}
