@@ -85,6 +85,7 @@ class TamperLockManager(context: Context) {
                 // Successfully authenticated! Atomically commit the consumed step and reset failed attempts
                 prefs.edit()
                     .putLong(KEY_LAST_ACCEPTED_STEP, step)
+                    .putBoolean(KEY_PAIRING_CONFIRMED, true)
                     .putInt(KEY_FAILED_ATTEMPTS, 0)
                     .putLong(KEY_LOCKOUT_UNTIL_ELAPSED, 0L)
                     .putLong(KEY_LOCKOUT_UNTIL_WALL, 0L)
@@ -159,8 +160,38 @@ class TamperLockManager(context: Context) {
         SecureRandom().nextBytes(randomBytes)
         val base32Secret = Base32.encode(randomBytes)
         savePartnerSecret(base32Secret)
+        prefs.edit()
+            .putBoolean(KEY_PAIRING_CONFIRMED, false)
+            .remove(KEY_LAST_ACCEPTED_STEP)
+            .putInt(KEY_FAILED_ATTEMPTS, 0)
+            .putLong(KEY_LOCKOUT_UNTIL_ELAPSED, 0L)
+            .putLong(KEY_LOCKOUT_UNTIL_WALL, 0L)
+            .commit()
         Log.i(TAG, "Generated and stored new accountability partner TOTP secret (Keystore-encrypted)")
         return base32Secret
+    }
+
+    /**
+     * Returns whether partner pairing has been verified or was active from an existing installation.
+     */
+    @Synchronized
+    fun isPairingConfirmed(): Boolean {
+        if (getPartnerSecret() == null) return false
+        if (prefs.contains(KEY_PAIRING_CONFIRMED)) {
+            return prefs.getBoolean(KEY_PAIRING_CONFIRMED, false)
+        }
+        // Existing paired users upgrading from earlier versions default to locked/confirmed
+        return true
+    }
+
+    @Synchronized
+    fun markPairingConfirmed(confirmed: Boolean) {
+        prefs.edit().putBoolean(KEY_PAIRING_CONFIRMED, confirmed).commit()
+    }
+
+    @Synchronized
+    fun getFailedAttemptsCount(): Int {
+        return prefs.getInt(KEY_FAILED_ATTEMPTS, 0)
     }
 
     /**
@@ -196,6 +227,7 @@ class TamperLockManager(context: Context) {
         prefs.edit()
             .remove(KEY_PARTNER_SECRET_ENCRYPTED)
             .remove(KEY_PARTNER_SECRET_LEGACY)
+            .remove(KEY_PAIRING_CONFIRMED)
             .remove(KEY_LAST_ACCEPTED_STEP)
             .remove(KEY_FAILED_ATTEMPTS)
             .remove(KEY_LOCKOUT_UNTIL_ELAPSED)
@@ -337,8 +369,36 @@ class TamperLockManager(context: Context) {
             .putBoolean(KEY_COOLDOWN_COMPLETED, false)
             .putLong(KEY_COOLDOWN_REMAINING, 0L)
             .remove(KEY_COOLDOWN_SIGNATURE)
+            .remove(KEY_COOLDOWN_PURPOSE)
             .commit()
         Log.i(TAG, "Cooldown timer cancelled")
+    }
+
+    @Synchronized
+    fun setCooldownPurpose(purpose: String) {
+        prefs.edit().putString(KEY_COOLDOWN_PURPOSE, purpose).apply()
+    }
+
+    @Synchronized
+    fun getCooldownPurpose(): String {
+        return prefs.getString(KEY_COOLDOWN_PURPOSE, COOLDOWN_PURPOSE_UNLOCK) ?: COOLDOWN_PURPOSE_UNLOCK
+    }
+
+    /**
+     * Atomically consumes a completed cooldown authorization (only succeeds if integrity-verified
+     * cooldown reached zero) so a single timed delay grants one unlock action.
+     */
+    @Synchronized
+    fun consumeCompletedCooldown(): Boolean {
+        if (!isCooldownFinished()) return false
+        prefs.edit()
+            .putBoolean(KEY_COOLDOWN_ACTIVE, false)
+            .putBoolean(KEY_COOLDOWN_COMPLETED, false)
+            .putLong(KEY_COOLDOWN_REMAINING, 0L)
+            .remove(KEY_COOLDOWN_SIGNATURE)
+            .remove(KEY_COOLDOWN_PURPOSE)
+            .commit()
+        return true
     }
 
     @Synchronized
@@ -648,6 +708,7 @@ class TamperLockManager(context: Context) {
         // Preference keys
         private const val KEY_PARTNER_SECRET_LEGACY = "partner_totp_secret"
         private const val KEY_PARTNER_SECRET_ENCRYPTED = "partner_totp_secret_enc"
+        private const val KEY_PAIRING_CONFIRMED = "partner_pairing_confirmed"
         private const val KEY_LAST_ACCEPTED_STEP = "totp_last_accepted_step"
         private const val KEY_FAILED_ATTEMPTS = "totp_failed_attempts"
         private const val KEY_LOCKOUT_UNTIL_ELAPSED = "totp_lockout_until_elapsed"
@@ -655,6 +716,12 @@ class TamperLockManager(context: Context) {
 
         private const val KEY_COOLDOWN_ACTIVE = "cooldown_active"
         private const val KEY_COOLDOWN_COMPLETED = "cooldown_completed"
+        private const val KEY_COOLDOWN_PURPOSE = "cooldown_purpose"
+
+        const val COOLDOWN_PURPOSE_UNLOCK = "unlock_settings"
+        const val COOLDOWN_PURPOSE_PAUSE_VPN = "pause_vpn"
+        const val COOLDOWN_PURPOSE_UNPAIR = "unpair_partner"
+        const val COOLDOWN_PURPOSE_RELEASE_LOCKDOWN = "release_lockdown"
         private const val KEY_COOLDOWN_DURATION = "cooldown_duration"
         private const val KEY_COOLDOWN_REMAINING = "cooldown_remaining"
         private const val KEY_COOLDOWN_START_WALL = "cooldown_start_wall"

@@ -28,6 +28,46 @@
 
 ## 🕒 Change History
 
+### [2026-11-26 13:45] - Brand Identity Refresh: Concept 1 (Monolith Z-Shield) Android Icon Suite
+- **AI Agent / Model**: Antigravity
+- **Objective**: Replace ZevBlock's legacy launcher icon, monochrome layer, status bar notification badge, and in-app brand marks with the chosen **Concept 1 (Monolith Z-Shield)** identity across all Android resource buckets (`API 24–36`).
+- **Files Modified / Created**:
+  - `app/src/main/res/drawable/ic_launcher_foreground.xml` - Replaced layered cyber shield with unified geometric emerald-to-cyan (`#10E882` -> `#22D4C0` -> `#33C6FB`) Monolith Z-Shield vector centered within `r <= 29.99dp` of the `66dp` adaptive safe zone.
+  - `app/src/main/res/drawable/ic_launcher_background.xml` - Updated to calm obsidian navy depth gradient (`#111B30` -> `#0C1323` -> `#070B14`) with a soft radial aura.
+  - `app/src/main/res/drawable/ic_launcher_monochrome.xml` *(new)* - Added dedicated `#FF000000` single-tint silhouette with transparent Z trenches for Android 13+ Material You themed icons.
+  - `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml`, `ic_launcher_round.xml` - Wired `<monochrome>` to `@drawable/ic_launcher_monochrome`.
+  - `app/src/main/res/mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher{,_round}.webp` - Regenerated all 10 legacy square and round `RGBA WEBP` mipmaps (`48px`–`192px`) from the `72dp` adaptive viewport crop.
+  - `app/src/main/res/drawable/ic_stat_zevblock_shield.xml` - Updated `24dp` `#FFFFFFFF` notification status bar badge to an optically balanced Monolith Z-Shield silhouette.
+  - `app/src/main/res/drawable/ic_zevblock_logo.png` - Replaced with supersampled `512×512` `RGBA PNG` brand badge for `MainActivity` TopAppBar and `README.md`.
+  - `app/src/main/res/drawable/ic_zevblock_mark.xml` *(new)* & `app/src/main/java/com/zevbuild/zevblock/ui/screens/DashboardScreen.kt` - Added `48dp` standalone shield emblem with dark obsidian backing clipped inside the shield and wired it into the circular Hero Shield ring (`38.dp`).
+  - `app/src/test/java/com/zevbuild/zevblock/UiUxRedesignTest.kt` - Added Robolectric resource resolution check covering all launcher, monochrome, notification, and brand drawables.
+- **Security, Battery & Privacy Audit**:
+  - Resource-only brand and UI icon update; zero permission changes, background overhead, network calls, or data persistence added.
+- **Verification**:
+  - Verified all XML resources parse cleanly, all 11 raster assets match target `RGBA` dimensions, adaptive foreground/monochrome stay within `29.99dp` safe radius, and pushed to PR #5 for GitHub Actions CI (`assembleDebug` & `testDebugUnitTest`).
+- **Next Steps / Open Items**:
+  - Merge PR #5 into `main` once CI confirms green `BUILD SUCCESSFUL` on the final commit.
+
+### [2026-11-26 12:42] - Calm Fortress UI & UX Redesign + Security & Telemetry Truthfulness
+- **AI Agent / Model**: Antigravity (Gemini 4 Hydrogen XHigh)
+- **Objective**: Redesign ZevBlock's UI & UX into a 4-tab Calm Fortress architecture (`Shield`, `Rules`, `Partner`, `Settings`), fix Partner key exposure and unprotected toggle/pause leaks, eliminate synthetic telemetry numbers, upgrade QR encoding to ISO/IEC 18004, and deliver P1/P2 FEATURE_PLAN UX improvements.
+- **Files Modified / Created**:
+  - `app/src/main/java/com/zevbuild/zevblock/core/prefs/ZevBlockPreferences.kt` - Added persisted UI, notification mode, Dev Lab visibility, and guard toggle state (strictly zero URL/query persistence).
+  - `app/src/main/java/com/zevbuild/zevblock/ui/theme/Color.kt`, `Theme.kt`, `Type.kt` - Introduced calibrated `ZevBlockTheme` (`Slate Dark` + `Calm Light`), WCAG AA button contrast tokens, and full Material 3 Typography scale (`>= 11sp` readability floor).
+  - `app/src/main/res/drawable/ic_stat_zevblock_shield.xml`, `res/values/colors.xml`, `res/values/themes.xml` - Replaced generic system download icon in notifications with monochrome shield vector and updated theme XMLs.
+  - `app/src/main/java/com/zevbuild/zevblock/ui/components/ZevUiComponents.kt`, `MotionEffects.kt`, `NetworkTelemetryWaveCard.kt` - Created `SegmentedOtpInput`, `PartnerUnlockGateDialog`, `ZevStatusBadge`, `LiveDnsTelemetryModal`, reduced-motion awareness, RAM-only session log Pause/Clear controls, and real upstream latency display.
+  - `app/src/main/java/com/zevbuild/zevblock/ui/qr/QrCodeGenerator.kt` - Replaced stub byte-filler with spec-compliant ISO/IEC 18004 QR generator (Reed-Solomon GF(256) ECC-L, Version 1-9 auto-fit, BCH format & version info, mask selection).
+  - `app/src/main/java/com/zevbuild/zevblock/core/security/TamperLockManager.kt` - Added pairing confirmation tracking, attempt count accessor, and single-use completed cooldown purpose consumption.
+  - `app/src/main/java/com/zevbuild/zevblock/core/dns/SafeSearchManager.kt`, `DomainBlocklistMatcher.kt`, `DnsBlockerVpnService.kt` - Synchronized mutable rule collections, added read-only `inspectDomainLookup`, removed synthetic `14ms` latency seed, supported all 7 search engines in simulator, and added clean notification mode.
+  - `app/src/main/java/com/zevbuild/zevblock/accessibility/ShieldAccessibilityService.kt`, `ui/overlay/*`, `receiver/BootCompletedReceiver.kt` - Added persisted chat alert toggle, supportive category + streak intervention overlay, and preference re-sync on boot/service start.
+  - `app/src/main/java/com/zevbuild/zevblock/ui/screens/*`, `SettingsScreen.kt`, `MainActivity.kt` - Built 4-tab navigation, Guided Setup Sheet (with Android 13+, notifications, battery optimization, Device Admin, and ADB/Shizuku commands), Partner Vault secret locking & brute-force lockout countdown, scalable Rules + Category Lookup, Settings & Dev Lab screen, and `ON_RESUME` auto-sync.
+  - `app/src/test/java/com/zevbuild/zevblock/UiUxRedesignTest.kt` - Added regression tests covering preferences isolation, pairing confirmation/vault flow, ISO QR matrix structure, SafeSearch rule coverage, and read-only DNS lookup / RAM session log controls.
+- **Security, Battery & Privacy Audit**:
+  - Partner secrets & QR codes now lock behind TOTP once pairing is confirmed; pausing VPN, releasing Device Owner lockdown, weakening guards, or resetting stats enforce Partner TOTP gates when paired.
+  - Zero URLs or user browsing text written to disk; telemetry logs stay RAM-only with user Pause/Clear options; radar pulse respects system animator scale.
+- **Verification**:
+  - Verified on `feat/ui-ux-redesign` via GitHub Actions CI (`./gradlew assembleDebug`, `./gradlew testDebugUnitTest`).
+
 ### [2026-11-02 16:34] - Fix Google SafeSearch Syntax Error & GC Optimization
 - **AI Agent / Model**: Antigravity (Gemini 3.8 Flash High)
 - **Objective**: Review branch `fix/google-safesearch-domain-matching`, resolve literal `\n` syntax corruption in `SafeSearchManager.kt`, optimize heap allocations for DNS label checks with companion object set, and expand regression unit tests.

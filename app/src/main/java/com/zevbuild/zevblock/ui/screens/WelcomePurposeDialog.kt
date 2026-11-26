@@ -1,5 +1,6 @@
 package com.zevbuild.zevblock.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Shield
@@ -40,29 +42,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.zevbuild.zevblock.ui.theme.ShieldBorderDark
-import com.zevbuild.zevblock.ui.theme.ShieldCardDark
-import com.zevbuild.zevblock.ui.theme.ShieldGreen
-import com.zevbuild.zevblock.ui.theme.ShieldGreenDark
-import com.zevbuild.zevblock.ui.theme.ShieldNavyDark
-import com.zevbuild.zevblock.ui.theme.ShieldSurfaceDark
-import com.zevbuild.zevblock.ui.theme.ShieldTeal
-import com.zevbuild.zevblock.ui.theme.TextMutedDark
-import com.zevbuild.zevblock.ui.theme.TextPrimaryDark
-import com.zevbuild.zevblock.ui.theme.TextSecondaryDark
+import com.zevbuild.zevblock.ui.theme.ZevTheme
 
 /**
  * WelcomePurposeDialog:
- * High-impact onboarding dialog shown upon first launch.
- * Clearly, concisely, and effectively explains that ZevBlock is designed to protect
- * the user from pornography and adult content everywhere on their device.
+ * First-launch introduction clearly explaining ZevBlock's core mission,
+ * on-device privacy guarantees, upstream DNS disclosure, and documented Android limits.
  */
 @Composable
 fun WelcomePurposeDialog(
     onDismiss: () -> Unit
 ) {
+    val colors = ZevTheme.colors
+
     Dialog(
-        onDismissRequest = { /* Force explicit user acknowledgement */ },
+        onDismissRequest = { /* Require explicit acknowledgment */ },
         properties = DialogProperties(
             dismissOnBackPress = false,
             dismissOnClickOutside = false,
@@ -73,8 +67,8 @@ fun WelcomePurposeDialog(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .clip(RoundedCornerShape(24.dp))
-                .border(1.5.dp, ShieldTeal.copy(alpha = 0.5f), RoundedCornerShape(24.dp)),
-            colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
+                .border(1.5.dp, colors.teal.copy(alpha = 0.55f), RoundedCornerShape(24.dp)),
+            colors = CardDefaults.cardColors(containerColor = colors.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
         ) {
             Column(
@@ -83,123 +77,136 @@ fun WelcomePurposeDialog(
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header Shield Icon with Glow Ring
                 Box(
                     modifier = Modifier
-                        .size(68.dp)
+                        .size(64.dp)
                         .clip(CircleShape)
-                        .background(ShieldNavyDark)
-                        .border(2.dp, ShieldTeal, CircleShape),
+                        .background(colors.background)
+                        .border(2.dp, colors.teal, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Shield,
-                        contentDescription = "Protection Shield",
-                        tint = ShieldTeal,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Title
-                Text(
-                    text = "Welcome to ZevBlock",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = TextPrimaryDark,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Core Purpose Message (Short, punchy & highly effective)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(ShieldTeal.copy(alpha = 0.12f))
-                        .border(1.dp, ShieldTeal.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "This app is designed to keep you safe from pornography and adult content.",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ShieldTeal,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 20.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // Feature Highlights Box
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(ShieldNavyDark)
-                        .border(1.dp, ShieldBorderDark, RoundedCornerShape(14.dp))
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    PurposeFeatureRow(
-                        icon = Icons.Default.Block,
-                        iconTint = Color(0xFFFF5252),
-                        title = "Zero-Bypass Adult Filter",
-                        description = "Blocks explicit sites, search queries, and incognito sessions across all apps & browsers."
-                    )
-
-                    PurposeFeatureRow(
-                        icon = Icons.Default.Message,
-                        iconTint = ShieldTeal,
-                        title = "Chat & Messaging Safeguard",
-                        description = "Monitors for vulgar content in chat apps (WhatsApp, Telegram, etc.) with non-intrusive alerts."
-                    )
-
-                    PurposeFeatureRow(
-                        icon = Icons.Default.Lock,
-                        iconTint = ShieldGreen,
-                        title = "Tamper-Proof Commitment",
-                        description = "Prevents impulsive bypass with Partner TOTP authorization and 24-hour hardware cooldowns."
+                        contentDescription = "ZevBlock Protection Shield",
+                        tint = colors.teal,
+                        modifier = Modifier.size(34.dp)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Reassuring privacy note
                 Text(
-                    text = "🔒 100% On-Device Privacy • No Data Collected • Zero Logging",
-                    fontSize = 11.sp,
-                    color = TextMutedDark,
+                    text = "Welcome to ZevBlock",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.textPrimary,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Primary Acknowledgement Button
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.teal.copy(alpha = 0.12f))
+                        .border(BorderStroke(1.dp, colors.teal.copy(alpha = 0.35f)), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Built to keep you protected from pornography and adult content with quiet reliability.",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.teal,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 19.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(colors.background)
+                        .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    PurposeFeatureRow(
+                        icon = Icons.Default.Block,
+                        iconTint = colors.red,
+                        title = "Network & Browser Defense-in-Depth",
+                        description = "Local port-53 DNS sinkhole + SafeSearch VIP combined with on-device URL, keyword, and Incognito detection."
+                    )
+
+                    PurposeFeatureRow(
+                        icon = Icons.Default.Message,
+                        iconTint = colors.teal,
+                        title = "Non-Intrusive Chat Accountability",
+                        description = "Detects explicit keywords in messaging apps with gentle alerts instead of kicking you out of conversations."
+                    )
+
+                    PurposeFeatureRow(
+                        icon = Icons.Default.Lock,
+                        iconTint = colors.green,
+                        title = "Partner TOTP & Hardware Delays",
+                        description = "Protects against impulsive changes with offline authenticator codes or monotonic 24-hour cooldown locks."
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Transparent privacy & limits notice
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.card)
+                        .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                        .padding(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Transparency: Screen text is inspected strictly in local RAM and never uploaded or written to disk. Clean DNS lookups use family-filtered upstream resolvers (e.g. 1.1.1.3). Browser DoH or direct IPs are covered by Screen Guard.",
+                            fontSize = 11.sp,
+                            color = colors.textSecondary,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
-                    shape = RoundedCornerShape(14.dp)
+                        .height(50.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.greenBtn),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
                         contentDescription = null,
-                        tint = ShieldGreen,
+                        tint = colors.greenBtnFg,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "I Understand — Keep Me Safe",
-                        fontSize = 15.sp,
+                        text = "I Understand — Continue",
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = colors.greenBtnFg
                     )
                 }
             }
@@ -214,6 +221,7 @@ private fun PurposeFeatureRow(
     title: String,
     description: String
 ) {
+    val colors = ZevTheme.colors
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
@@ -222,8 +230,8 @@ private fun PurposeFeatureRow(
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .background(ShieldSurfaceDark)
-                .border(1.dp, ShieldBorderDark, CircleShape),
+                .background(colors.surface)
+                .border(1.dp, colors.border, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -239,14 +247,14 @@ private fun PurposeFeatureRow(
                 text = title,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimaryDark
+                color = colors.textPrimary
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = description,
-                fontSize = 11.sp,
-                color = TextSecondaryDark,
-                lineHeight = 15.sp
+                fontSize = 12.sp,
+                color = colors.textSecondary,
+                lineHeight = 16.sp
             )
         }
     }

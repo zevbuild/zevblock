@@ -15,17 +15,17 @@ This plan prioritizes correctness of existing protection before expanding covera
 
 ## P1 — Rule semantics
 - [ ] Separate adult-domain rules, general blocklist rules, and custom rules so temporary bypass and allowlist behavior is explicit.
-- [ ] Synchronize all mutable rule collections consistently.
-- [ ] Show users which rule category caused a block and how a rule can be changed.
+- [x] Synchronize all mutable rule collections consistently.
+- [x] Show users which rule category caused a block and how a rule can be changed.
 
 ## P2 — Protection state and onboarding
-- [ ] Report actual VPN, Accessibility, and Device Owner state independently.
-- [ ] Explain which features require Device Owner and what remains available without it.
-- [ ] Add recovery guidance for revoked permissions, VPN interruption, and unsupported Android behavior.
+- [x] Report actual VPN, Accessibility, and Device Owner state independently.
+- [x] Explain which features require Device Owner and what remains available without it.
+- [x] Add recovery guidance for revoked permissions, VPN interruption, and unsupported Android behavior.
 
 ## P2 — Privacy and limits
-- [ ] Explain locally inspected screen text and DNS queries sent to upstream resolvers.
-- [ ] Keep DoH, direct-IP, cached-DNS, and manufacturer-specific limitations visible in product documentation.
+- [x] Explain locally inspected screen text and DNS queries sent to upstream resolvers.
+- [x] Keep DoH, direct-IP, cached-DNS, and manufacturer-specific limitations visible in product documentation.
 - [ ] Publish a device and Android-version validation matrix; avoid claims stronger than demonstrated coverage.
 
 ## Release acceptance

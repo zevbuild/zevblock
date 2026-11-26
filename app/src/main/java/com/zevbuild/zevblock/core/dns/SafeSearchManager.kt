@@ -128,6 +128,25 @@ class SafeSearchManager {
     }
 
     /**
+     * Evaluates whether a domain is targeted by SafeSearch VIP rewriting and
+     * returns a human-readable destination description, or null if not targeted.
+     */
+    fun describeMatch(rawDomain: String): String? {
+        if (!isEnabled) return null
+        val domain = rawDomain.lowercase().trimEnd('.')
+        return when {
+            isGoogleSearchDomain(domain) -> "$GOOGLE_SAFESEARCH_IPV4 (Google SafeSearch VIP)"
+            isYouTubeDomain(domain) -> "$YOUTUBE_RESTRICTED_STRICT_IPV4 (YouTube Restricted VIP)"
+            isBingDomain(domain) -> "$BING_STRICT_IPV4 (Bing Strict VIP)"
+            domain == "duckduckgo.com" || domain == "www.duckduckgo.com" -> "$DUCKDUCKGO_SAFE_CNAME (DuckDuckGo Safe VIP)"
+            isYahooSearchDomain(domain) -> "$YAHOO_SAFE_CNAME (Yahoo SafeSearch VIP)"
+            domain == "search.brave.com" -> "$BRAVE_SAFE_CNAME (Brave SafeSearch VIP)"
+            domain == "qwant.com" || domain == "www.qwant.com" -> "$QWANT_SAFE_CNAME (Qwant SafeSearch VIP)"
+            else -> null
+        }
+    }
+
+    /**
      * Determines whether the domain is an active Google search domain (e.g. www.google.com, google.ca, etc.)
      */
     fun isGoogleSearchDomain(domain: String): Boolean {
@@ -155,22 +174,25 @@ class SafeSearchManager {
     }
 
     fun isYouTubeDomain(domain: String): Boolean {
-        return domain == "youtube.com" ||
-                domain == "www.youtube.com" ||
-                domain == "m.youtube.com" ||
-                domain == "youtubei.googleapis.com" ||
-                domain == "youtube-nocookie.com"
+        val clean = domain.lowercase().trimEnd('.')
+        return clean == "youtube.com" ||
+                clean == "www.youtube.com" ||
+                clean == "m.youtube.com" ||
+                clean == "youtubei.googleapis.com" ||
+                clean == "youtube-nocookie.com"
     }
 
     fun isBingDomain(domain: String): Boolean {
-        return domain == "bing.com" ||
-                domain == "www.bing.com" ||
-                domain == "cn.bing.com"
+        val clean = domain.lowercase().trimEnd('.')
+        return clean == "bing.com" ||
+                clean == "www.bing.com" ||
+                clean == "cn.bing.com"
     }
 
     fun isYahooSearchDomain(domain: String): Boolean {
-        return domain == "search.yahoo.com" ||
-                domain == "search.yahoo.co.jp" ||
-                domain == "us.search.yahoo.com"
+        val clean = domain.lowercase().trimEnd('.')
+        return clean == "search.yahoo.com" ||
+                clean == "search.yahoo.co.jp" ||
+                clean == "us.search.yahoo.com"
     }
 }

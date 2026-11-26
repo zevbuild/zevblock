@@ -1,22 +1,13 @@
 package com.zevbuild.zevblock.ui.screens
 
 import android.widget.Toast
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import com.zevbuild.zevblock.ui.components.SpringBounceBox
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,22 +16,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -51,23 +37,23 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -76,549 +62,545 @@ import com.zevbuild.zevblock.core.rules.CustomShieldRuleManager
 import com.zevbuild.zevblock.core.rules.PendingRemovalItem
 import com.zevbuild.zevblock.core.rules.RuleOperationResult
 import com.zevbuild.zevblock.core.rules.RuleType
-import com.zevbuild.zevblock.ui.theme.ShieldAmber
-import com.zevbuild.zevblock.ui.theme.ShieldBorderDark
-import com.zevbuild.zevblock.ui.theme.ShieldCardDark
-import com.zevbuild.zevblock.ui.theme.ShieldGreen
-import com.zevbuild.zevblock.ui.theme.ShieldGreenDark
-import com.zevbuild.zevblock.ui.theme.ShieldNavyDark
-import com.zevbuild.zevblock.ui.theme.ShieldRed
-import com.zevbuild.zevblock.ui.theme.ShieldSurfaceDark
-import com.zevbuild.zevblock.ui.theme.ShieldTeal
-import com.zevbuild.zevblock.ui.theme.TextMutedDark
-import com.zevbuild.zevblock.ui.theme.TextPrimaryDark
-import com.zevbuild.zevblock.ui.theme.TextSecondaryDark
+import com.zevbuild.zevblock.core.security.TamperLockManager
+import com.zevbuild.zevblock.ui.components.SegmentedOtpInput
+import com.zevbuild.zevblock.ui.components.SpringBounceBox
+import com.zevbuild.zevblock.ui.components.ZevStatusBadge
+import com.zevbuild.zevblock.ui.components.formatDurationClock
+import com.zevbuild.zevblock.ui.theme.ZevTheme
+import com.zevbuild.zevblock.vpn.DnsBlockerVpnService
+import com.zevbuild.zevblock.vpn.DomainCategory
+import kotlinx.coroutines.delay
 
 /**
- * CustomRulesScreen:
- * Interface for adding and managing user-defined custom blocked domains and keywords.
- * Zero-Bypass Principle: Built-in adult blocklists are permanently enforced.
- * Removing custom rules strictly requires Partner TOTP verification OR 24-hour hardware cooldown.
+ * CustomRulesScreen ("Rules"):
+ * Scalable LazyColumn-backed rules manager distinguishing Custom Domains, Custom Keywords,
+ * and Immutable Baseline + "Why Blocked?" Lookup per FEATURE_PLAN P1.
  */
 @Composable
 fun CustomRulesScreen(
     ruleManager: CustomShieldRuleManager,
+    tamperLockManager: TamperLockManager,
     hasPartnerConfigured: Boolean,
     onNavigateToPartnerSetup: () -> Unit
 ) {
     val context = LocalContext.current
-    val scrollState = rememberScrollState()
+    val colors = ZevTheme.colors
 
-    var selectedRuleTab by remember { mutableIntStateOf(0) } // 0: Domains, 1: Keywords
-
+    var selectedSegment by remember { mutableIntStateOf(0) } // 0: Domains, 1: Keywords, 2: Baseline & Lookup
     val customDomains by ruleManager.customDomains.collectAsState()
     val customKeywords by ruleManager.customKeywords.collectAsState()
     val pendingRemovals by ruleManager.pendingRemovals.collectAsState()
 
     var domainInput by remember { mutableStateOf("") }
     var keywordInput by remember { mutableStateOf("") }
+    var searchFilter by remember { mutableStateOf("") }
+    var lookupInput by remember { mutableStateOf("www.google.co.in") }
 
-    // State for removal dialog
     var itemToRemove by remember { mutableStateOf<Pair<String, RuleType>?>(null) }
     var totpInput by remember { mutableStateOf("") }
+    var lockoutRemainingMs by remember { mutableLongStateOf(tamperLockManager.getLockoutRemainingMs()) }
 
-    Column(
+    // Live 1-second tick for 24h pending removal countdowns
+    LaunchedEffect(pendingRemovals.isNotEmpty()) {
+        while (pendingRemovals.isNotEmpty()) {
+            delay(1000L)
+            ruleManager.refreshPendingRemovals()
+        }
+    }
+
+    LaunchedEffect(itemToRemove, lockoutRemainingMs) {
+        if (itemToRemove != null) {
+            while (lockoutRemainingMs > 0L) {
+                delay(1000L)
+                lockoutRemainingMs = tamperLockManager.getLockoutRemainingMs()
+            }
+        }
+    }
+
+    val filteredDomains = remember(customDomains, searchFilter) {
+        customDomains.sorted().filter {
+            searchFilter.isBlank() || it.contains(searchFilter.trim(), ignoreCase = true)
+        }
+    }
+
+    val filteredKeywords = remember(customKeywords, searchFilter) {
+        customKeywords.sorted().filter {
+            searchFilter.isBlank() || it.contains(searchFilter.trim(), ignoreCase = true)
+        }
+    }
+
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .testTag("custom_rules_lazy_column"),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Zero-Bypass Safeguard Guarantee Banner
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
-            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldTeal.copy(alpha = 0.5f)))
-        ) {
+        // 1. 3-Segment Selector Chips
+        item(key = "rules_segments") {
             Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(ShieldTeal.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(imageVector = Icons.Default.Security, contentDescription = "Shield", tint = ShieldTeal)
-                }
-                Spacer(modifier = Modifier.width(14.dp))
-                Column {
-                    Text(
-                        text = "Zero-Bypass Custom Shield",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Built-in adult blocklists are permanent and immutable. Custom rules can be added instantly, but deletion requires Partner TOTP or a 24-hour cooldown lock.",
-                        fontSize = 12.sp,
-                        color = TextSecondaryDark,
-                        lineHeight = 16.sp
-                    )
+                val tabs = listOf(
+                    "Domains (${customDomains.size})",
+                    "Keywords (${customKeywords.size})",
+                    "Baseline & Lookup"
+                )
+                tabs.forEachIndexed { idx, label ->
+                    val selected = selectedSegment == idx
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp)),
+                        onClick = { selectedSegment = idx },
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (selected) colors.teal else colors.surface,
+                        border = BorderStroke(1.dp, if (selected) colors.teal else colors.border)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (selected) colors.tealBtnFg else colors.textSecondary,
+                                maxLines = 1
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // Active Pending 24-Hour Cooldown Removals Card (if any)
+        // 2. Active Pending 24-Hour Cooldown Removals (live-ticking)
         if (pendingRemovals.isNotEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldAmber))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.HourglassBottom, contentDescription = "Cooldown", tint = ShieldAmber)
-                        Spacer(modifier = Modifier.width(10.dp))
+            item(key = "pending_cooldown_header") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.surface),
+                    border = BorderStroke(1.dp, colors.amber)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.HourglassBottom, contentDescription = null, tint = colors.amberSoftText, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Pending 24-Hour Cooldown Removals",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.amberSoftText
+                            )
+                        }
                         Text(
-                            text = "Pending 24-Hour Cooldown Removals",
+                            text = "Monotonic clock delay active. Rules remain 100% enforced until countdown hits 00:00.",
+                            fontSize = 12.sp,
+                            color = colors.textSecondary
+                        )
+
+                        pendingRemovals.forEach { pending ->
+                            PendingRemovalItemRow(
+                                item = pending,
+                                onCancel = {
+                                    ruleManager.cancelPendingRemoval(pending.item)
+                                    Toast.makeText(context, "'${pending.item}' remains blocked.", Toast.LENGTH_SHORT).show()
+                                },
+                                onFinalize = {
+                                    val res = ruleManager.finalizeCooldownRemoval(pending.item)
+                                    when (res) {
+                                        is RuleOperationResult.Success -> Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                        is RuleOperationResult.CooldownStarted -> Toast.makeText(context, "Still active: ${formatDurationClock(res.remainingMs)}", Toast.LENGTH_SHORT).show()
+                                        else -> {}
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Segment Content
+        if (selectedSegment == 0 || selectedSegment == 1) {
+            val isDomain = selectedSegment == 0
+            item(key = "add_and_search_card_$selectedSegment") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.surface),
+                    border = BorderStroke(1.dp, colors.border)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = if (isDomain) "Add Custom Blocked Domain" else "Add Custom Screen & Chat Keyword",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
-                            color = ShieldAmber
+                            color = colors.textPrimary
                         )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Hardware monotonic clock delay active to protect against impulsive relapse. Rules remain 100% blocked until cooldown expires.",
-                        fontSize = 12.sp,
-                        color = TextSecondaryDark
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (isDomain) "Sinkholes DNS lookups for custom distractions (gambling, social media). Removable via Partner TOTP or 24h cooldown."
+                            else "Monitors browser address bars, titles, and messaging alerts on-device in RAM.",
+                            fontSize = 12.sp,
+                            color = colors.textSecondary
+                        )
 
-                    pendingRemovals.forEach { item ->
-                        PendingRemovalItemRow(
-                            item = item,
-                            onCancel = {
-                                ruleManager.cancelPendingRemoval(item.item)
-                                Toast.makeText(context, "Cooldown cancelled: '${item.item}' remains blocked.", Toast.LENGTH_SHORT).show()
-                            },
-                            onFinalize = {
-                                val res = ruleManager.finalizeCooldownRemoval(item.item)
-                                when (res) {
-                                    is RuleOperationResult.Success -> Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                    is RuleOperationResult.CooldownStarted -> Toast.makeText(context, "Cooldown still active: ${formatDuration(res.remainingMs)} remaining", Toast.LENGTH_SHORT).show()
-                                    else -> {}
-                                }
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = if (isDomain) domainInput else keywordInput,
+                                onValueChange = { if (isDomain) domainInput = it else keywordInput = it },
+                                placeholder = {
+                                    Text(
+                                        text = if (isDomain) "e.g., reddit.com" else "e.g., custom phrase",
+                                        color = colors.textMuted,
+                                        fontSize = 13.sp
+                                    )
+                                },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = colors.teal,
+                                    unfocusedBorderColor = colors.border,
+                                    focusedTextColor = colors.textPrimary,
+                                    unfocusedTextColor = colors.textPrimary
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    val input = if (isDomain) domainInput else keywordInput
+                                    if (input.isNotBlank()) {
+                                        val res = if (isDomain) ruleManager.addDomain(input) else ruleManager.addKeyword(input)
+                                        when (res) {
+                                            is RuleOperationResult.Success -> {
+                                                Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                                if (isDomain) domainInput = "" else keywordInput = ""
+                                            }
+                                            is RuleOperationResult.AlreadyExists -> Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                                            is RuleOperationResult.ProtectedBySystem -> Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                                            is RuleOperationResult.InvalidInput -> Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                            else -> {}
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.greenBtn),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.height(52.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Add Rule", tint = colors.greenBtnFg)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Add", color = colors.greenBtnFg, fontWeight = FontWeight.Bold)
                             }
+                        }
+
+                        OutlinedTextField(
+                            value = searchFilter,
+                            onValueChange = { searchFilter = it },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = colors.textMuted) },
+                            placeholder = { Text("Filter active rules...", color = colors.textMuted, fontSize = 12.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = colors.teal,
+                                unfocusedBorderColor = colors.border,
+                                focusedTextColor = colors.textPrimary,
+                                unfocusedTextColor = colors.textPrimary
+                            )
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
-        }
 
-        // Tab Selector: Domains vs Keywords
-        TabRow(
-            selectedTabIndex = selectedRuleTab,
-            containerColor = ShieldSurfaceDark,
-            contentColor = ShieldGreen,
-            indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    modifier = Modifier.tabIndicatorOffset(tabPositions[selectedRuleTab]),
-                    color = ShieldGreen
-                )
-            }
-        ) {
-            Tab(
-                selected = selectedRuleTab == 0,
-                onClick = { selectedRuleTab = 0 },
-                text = { Text("Blocked Domains (${customDomains.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
-            )
-            Tab(
-                selected = selectedRuleTab == 1,
-                onClick = { selectedRuleTab = 1 },
-                text = { Text("Blocked Keywords (${customKeywords.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
-            )
-        }
-
-        // Animated Tab Content: Domains vs Keywords
-        AnimatedContent(
-            targetState = selectedRuleTab,
-            transitionSpec = {
-                val direction = if (targetState > initialState) 1 else -1
-                (slideInHorizontally(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    ),
-                    initialOffsetX = { fullWidth -> direction * (fullWidth / 3) }
-                ) + fadeIn(
-                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-                )).togetherWith(
-                    slideOutHorizontally(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        ),
-                        targetOffsetX = { fullWidth -> -direction * (fullWidth / 3) }
-                    ) + fadeOut(
-                        animationSpec = tween(120)
-                    )
-                )
-            },
-            label = "rules_tab_switch"
-        ) { tab ->
-            if (tab == 0) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
+            val itemsToShow = if (isDomain) filteredDomains else filteredKeywords
+            if (itemsToShow.isEmpty()) {
+                item(key = "empty_rules_$selectedSegment") {
                     Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Add Custom Blocked Domain",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Sinkholes DNS lookups for specific websites (e.g., gambling, social media, distracting portals).",
-                        fontSize = 12.sp,
-                        color = TextSecondaryDark
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = colors.surface),
+                        border = BorderStroke(1.dp, colors.border)
                     ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = colors.green, modifier = Modifier.size(32.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (searchFilter.isNotBlank()) "No matching custom rules"
+                                else if (isDomain) "No Custom Domains Added" else "No Custom Keywords Added",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.textPrimary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Built-in adult domains, SafeSearch VIPs, and explicit keywords remain permanently active.",
+                                fontSize = 12.sp,
+                                color = colors.textSecondary
+                            )
+                        }
+                    }
+                }
+            } else {
+                items(itemsToShow, key = { "${selectedSegment}_$it" }) { entry ->
+                    CustomItemRow(
+                        item = entry,
+                        subtitle = if (isDomain) "Custom DNS Sinkhole (0.0.0.0)" else "Custom Screen & Chat Trigger",
+                        onDelete = {
+                            lockoutRemainingMs = tamperLockManager.getLockoutRemainingMs()
+                            itemToRemove = Pair(entry, if (isDomain) RuleType.DOMAIN else RuleType.KEYWORD)
+                        }
+                    )
+                }
+            }
+        } else {
+            // Segment 2: Rule Category Lookup ("Why Was X Blocked?") + Read-Only Baseline Summary
+            item(key = "rule_lookup_card") {
+                val lookup = remember(lookupInput, customDomains) {
+                    DnsBlockerVpnService.inspectDomainLookup(lookupInput)
+                }
+                val catColor = when (lookup.category) {
+                    DomainCategory.SAFESEARCH_VIP -> colors.teal
+                    DomainCategory.ADULT_SHIELD -> colors.red
+                    DomainCategory.CUSTOM_RULE -> colors.amber
+                    DomainCategory.ALLOWED -> colors.green
+                    DomainCategory.INVALID -> colors.textMuted
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.surface),
+                    border = BorderStroke(1.dp, colors.border)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Why Was a Website Handled This Way?",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.textPrimary
+                        )
+                        Text(
+                            text = "Inspect any hostname to see which rule category applies and whether it can be changed.",
+                            fontSize = 12.sp,
+                            color = colors.textSecondary
+                        )
+
                         OutlinedTextField(
-                            value = domainInput,
-                            onValueChange = { domainInput = it },
-                            placeholder = { Text("e.g., reddit.com, bet365.com", color = TextMutedDark, fontSize = 13.sp) },
+                            value = lookupInput,
+                            onValueChange = { lookupInput = it },
+                            placeholder = { Text("e.g., www.google.co.in or pornhub.com", color = colors.textMuted, fontSize = 12.sp) },
                             singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("rule_lookup_input"),
+                            shape = RoundedCornerShape(10.dp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = ShieldGreen,
-                                unfocusedBorderColor = ShieldBorderDark,
-                                focusedTextColor = TextPrimaryDark,
-                                unfocusedTextColor = TextPrimaryDark
+                                focusedBorderColor = colors.teal,
+                                unfocusedBorderColor = colors.border,
+                                focusedTextColor = colors.textPrimary,
+                                unfocusedTextColor = colors.textPrimary
                             )
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                if (domainInput.isNotBlank()) {
-                                    val res = ruleManager.addDomain(domainInput)
-                                    when (res) {
-                                        is RuleOperationResult.Success -> {
-                                            Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                            domainInput = ""
-                                        }
-                                        is RuleOperationResult.AlreadyExists -> Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                        is RuleOperationResult.ProtectedBySystem -> Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                        is RuleOperationResult.InvalidInput -> Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                        else -> {}
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = ShieldGreen),
-                            shape = RoundedCornerShape(8.dp)
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.background)
+                                .border(1.dp, catColor.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                                .padding(12.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Add, contentDescription = "Add", tint = ShieldNavyDark)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Add", color = ShieldNavyDark, fontWeight = FontWeight.Bold)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = lookup.title,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = catColor
+                                    )
+                                    ZevStatusBadge(
+                                        label = if (lookup.isEditable) "USER RULE" else "SYSTEM",
+                                        color = catColor
+                                    )
+                                }
+                                Text(
+                                    text = lookup.detail,
+                                    fontSize = 12.sp,
+                                    color = colors.textPrimary
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // List of Custom Domains
-            if (customDomains.isEmpty()) {
+            item(key = "baseline_summary_card") {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
+                    colors = CardDefaults.cardColors(containerColor = colors.surface),
+                    border = BorderStroke(1.dp, colors.teal.copy(alpha = 0.45f))
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Shield Active", tint = ShieldGreen, modifier = Modifier.size(36.dp))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("No Custom Domains Added", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimaryDark)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("150+ top global adult tube sites & CDNs are already permanently blocked by default.", fontSize = 12.sp, color = TextSecondaryDark, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    }
-                }
-            } else {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Active Custom Domains (${customDomains.size})", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimaryDark)
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        customDomains.forEach { domain ->
-                            CustomItemRow(
-                                item = domain,
-                                subtitle = "DNS Sinkhole Block",
-                                onDelete = { itemToRemove = Pair(domain, RuleType.DOMAIN) }
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Security, contentDescription = null, tint = colors.teal, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Built-In Safeguard Baseline (Immutable)", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
                         }
+                        Text("• Adult Domains & CDNs: 150+ hierarchical hosts & streaming CDNs sinkholed permanently to 0.0.0.0.", fontSize = 12.sp, color = colors.textSecondary)
+                        Text("• Strict SafeSearch VIPs: Google (regional ccTLDs), YouTube, Bing, DuckDuckGo, Yahoo, Brave, and Qwant.", fontSize = 12.sp, color = colors.textSecondary)
+                        Text("• Screen & Chat Classifier: Explicit terms, adult TLDs (.xxx, .adult), and search parameters checked in RAM.", fontSize = 12.sp, color = colors.textSecondary)
                     }
                 }
             }
         }
-    } else {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // TAB 1: CUSTOM KEYWORDS (SCREEN & CHAT INSPECTOR)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Add Custom Blocked Keyword",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Scans screen content, browser address bars, and chat apps for custom trigger phrases.",
-                        fontSize = 12.sp,
-                        color = TextSecondaryDark
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = keywordInput,
-                            onValueChange = { keywordInput = it },
-                            placeholder = { Text("e.g., custom trigger phrase", color = TextMutedDark, fontSize = 13.sp) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = ShieldTeal,
-                                unfocusedBorderColor = ShieldBorderDark,
-                                focusedTextColor = TextPrimaryDark,
-                                unfocusedTextColor = TextPrimaryDark
-                            )
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                if (keywordInput.isNotBlank()) {
-                                    val res = ruleManager.addKeyword(keywordInput)
-                                    when (res) {
-                                        is RuleOperationResult.Success -> {
-                                            Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                            keywordInput = ""
-                                        }
-                                        is RuleOperationResult.AlreadyExists -> Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                        is RuleOperationResult.ProtectedBySystem -> Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                        is RuleOperationResult.InvalidInput -> Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                        else -> {}
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = ShieldTeal),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.Add, contentDescription = "Add", tint = ShieldNavyDark)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Add", color = ShieldNavyDark, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-
-            // List of Custom Keywords
-            if (customKeywords.isEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Shield Active", tint = ShieldTeal, modifier = Modifier.size(36.dp))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("No Custom Keywords Added", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimaryDark)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("70+ explicit terms, multilingual variants, and adult TLDs are permanently filtered by default.", fontSize = 12.sp, color = TextSecondaryDark, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    }
-                }
-            } else {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Active Custom Keywords (${customKeywords.size})", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimaryDark)
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        customKeywords.forEach { keyword ->
-                            CustomItemRow(
-                                item = keyword,
-                                subtitle = "Screen & Chat Word Filter",
-                                onDelete = { itemToRemove = Pair(keyword, RuleType.KEYWORD) }
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+        item { Spacer(modifier = Modifier.height(16.dp)) }
     }
 
-    // REMOVAL CONFIRMATION & AUTHENTICATION DIALOG
+    // Secure Custom Rule Deletion Modal (numeric segmented OTP + lockout + 24h cooldown)
     itemToRemove?.let { (item, type) ->
         AlertDialog(
             onDismissRequest = {
                 itemToRemove = null
                 totpInput = ""
             },
+            containerColor = colors.surface,
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.Lock, contentDescription = "Lock", tint = ShieldRed)
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = colors.red)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Secure Rule Deletion", color = TextPrimaryDark, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("Secure Rule Deletion", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "To guarantee zero-bypass accountability, deleting '$item' requires either Partner Authorization or a 24-Hour Cooldown.",
+                        text = "Deleting '$item' requires Partner 6-digit TOTP authorization or a 24-hour hardware cooldown.",
                         fontSize = 13.sp,
-                        color = TextSecondaryDark
+                        color = colors.textSecondary
                     )
+
+                    if (lockoutRemainingMs > 0L) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.red.copy(alpha = 0.14f))
+                                .border(1.dp, colors.red.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .padding(10.dp)
+                        ) {
+                            Text(
+                                text = "TOTP locked for ${formatDurationClock(lockoutRemainingMs)} due to repeated invalid codes.",
+                                fontSize = 12.sp,
+                                color = colors.red,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
 
                     // Option A: Partner TOTP
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
-                        shape = RoundedCornerShape(8.dp)
+                        colors = CardDefaults.cardColors(containerColor = colors.background),
+                        border = BorderStroke(1.dp, colors.border),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("Option A: Partner 6-Digit TOTP", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ShieldGreen)
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedTextField(
-                                value = totpInput,
-                                onValueChange = { if (it.length <= 6) totpInput = it },
-                                placeholder = { Text("Enter 6-digit code", color = TextMutedDark, fontSize = 12.sp) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(6.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = ShieldGreen,
-                                    unfocusedBorderColor = ShieldBorderDark,
-                                    focusedTextColor = TextPrimaryDark
-                                )
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = if (hasPartnerConfigured) "Option A: Partner 6-Digit TOTP" else "Option A: Partner Not Paired",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.green
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = {
-                                    val res = if (type == RuleType.DOMAIN) {
-                                        ruleManager.removeDomainWithTotp(item, totpInput)
-                                    } else {
-                                        ruleManager.removeKeywordWithTotp(item, totpInput)
-                                    }
-                                    when (res) {
-                                        is RuleOperationResult.Success -> {
-                                            Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                            itemToRemove = null
-                                            totpInput = ""
+                            if (hasPartnerConfigured) {
+                                SegmentedOtpInput(
+                                    value = totpInput,
+                                    onValueChange = { totpInput = it },
+                                    inputTestTag = "rule_delete_totp_input"
+                                )
+                                Button(
+                                    onClick = {
+                                        val res = if (type == RuleType.DOMAIN) {
+                                            ruleManager.removeDomainWithTotp(item, totpInput)
+                                        } else {
+                                            ruleManager.removeKeywordWithTotp(item, totpInput)
                                         }
-                                        is RuleOperationResult.TotpFailed -> {
-                                            Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                        when (res) {
+                                            is RuleOperationResult.Success -> {
+                                                Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                                itemToRemove = null
+                                                totpInput = ""
+                                            }
+                                            is RuleOperationResult.TotpFailed -> {
+                                                lockoutRemainingMs = tamperLockManager.getLockoutRemainingMs()
+                                                Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                            }
+                                            else -> {}
                                         }
-                                        else -> {}
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = ShieldGreen),
-                                shape = RoundedCornerShape(6.dp),
-                                enabled = totpInput.length == 6
-                            ) {
-                                Text("Verify Partner Code & Delete", color = ShieldNavyDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.greenBtn),
+                                    shape = RoundedCornerShape(8.dp),
+                                    enabled = totpInput.length == 6 && lockoutRemainingMs <= 0L
+                                ) {
+                                    Text("Verify Partner Code & Delete", color = colors.greenBtnFg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = {
+                                        itemToRemove = null
+                                        onNavigateToPartnerSetup()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("Pair Accountability Partner", color = colors.teal, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
 
-                    // Option B: 24-Hour Cooldown Delay
-                    Card(
+                    // Option B: 24-Hour Cooldown
+                    OutlinedButton(
+                        onClick = {
+                            ruleManager.requestCooldownRemoval(item, type)
+                            Toast.makeText(context, "24-hour cooldown started for '$item'.", Toast.LENGTH_LONG).show()
+                            itemToRemove = null
+                            totpInput = ""
+                        },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, colors.amber.copy(alpha = 0.65f))
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("Option B: 24-Hour Hardware Cooldown", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ShieldAmber)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Starts a 24-hour hardware clock delay. Once 24 hours expire without relapse, deletion can be confirmed.",
-                                fontSize = 11.sp,
-                                color = TextSecondaryDark
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = {
-                                    ruleManager.requestCooldownRemoval(item, type)
-                                    Toast.makeText(context, "24-Hour Cooldown started for '$item'.", Toast.LENGTH_LONG).show()
-                                    itemToRemove = null
-                                    totpInput = ""
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(6.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = ShieldAmber)
-                            ) {
-                                Text("Start 24-Hour Cooldown", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                        }
+                        Text("Option B: Start 24-Hour Cooldown", color = colors.amberSoftText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
-                Button(
+                TextButton(
                     onClick = {
                         itemToRemove = null
                         totpInput = ""
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ShieldSurfaceDark)
+                    }
                 ) {
-                    Text("Cancel", color = TextSecondaryDark)
+                    Text("Cancel", color = colors.textMuted)
                 }
-            },
-            containerColor = ShieldCardDark
+            }
         )
     }
 }
@@ -629,29 +611,31 @@ fun CustomItemRow(
     subtitle: String,
     onDelete: () -> Unit
 ) {
-    SpringBounceBox(
-        modifier = Modifier.fillMaxWidth(),
-        scaleDown = 0.98f
-    ) {
+    val colors = ZevTheme.colors
+    SpringBounceBox(modifier = Modifier.fillMaxWidth(), scaleDown = 0.98f) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(ShieldSurfaceDark)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.border, RoundedCornerShape(12.dp))
+                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(imageVector = Icons.Default.Lock, contentDescription = "Locked Rule", tint = ShieldTeal, modifier = Modifier.size(18.dp))
+            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Lock, contentDescription = "Locked Rule", tint = colors.teal, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
-                    Text(text = item, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimaryDark)
-                    Text(text = subtitle, fontSize = 11.sp, color = TextSecondaryDark)
+                    Text(text = item, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = colors.textPrimary)
+                    Text(text = subtitle, fontSize = 12.sp, color = colors.textSecondary)
                 }
             }
-            IconButton(onClick = onDelete) {
-                Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = ShieldRed.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Request removal", tint = colors.red, modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -663,55 +647,49 @@ fun PendingRemovalItemRow(
     onCancel: () -> Unit,
     onFinalize: () -> Unit
 ) {
+    val colors = ZevTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(ShieldNavyDark)
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.background)
+            .border(1.dp, colors.border, RoundedCornerShape(10.dp))
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = item.item, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimaryDark)
+            Text(text = item.item, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.textPrimary)
             Spacer(modifier = Modifier.height(2.dp))
             if (item.isReady) {
-                Text(text = "Cooldown Complete! Ready for removal.", fontSize = 11.sp, color = ShieldGreen, fontWeight = FontWeight.Bold)
+                Text(text = "Cooldown complete! Ready to confirm.", fontSize = 12.sp, color = colors.green, fontWeight = FontWeight.Bold)
             } else {
-                Text(text = "Cooldown: ${formatDuration(item.remainingMs)} remaining", fontSize = 11.sp, color = ShieldAmber)
+                Text(
+                    text = "Remaining: ${formatDurationClock(item.remainingMs)}",
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.amberSoftText
+                )
             }
         }
 
-        Row {
-            if (item.isReady) {
-                Button(
-                    onClick = onFinalize,
-                    colors = ButtonDefaults.buttonColors(containerColor = ShieldGreen),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text("Confirm", color = ShieldNavyDark, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            } else {
-                OutlinedButton(
-                    onClick = onCancel,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ShieldRed),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text("Cancel", fontSize = 11.sp)
-                }
+        Spacer(modifier = Modifier.width(8.dp))
+        if (item.isReady) {
+            Button(
+                onClick = onFinalize,
+                colors = ButtonDefaults.buttonColors(containerColor = colors.greenBtn),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Confirm", color = colors.greenBtnFg, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        } else {
+            OutlinedButton(
+                onClick = onCancel,
+                border = BorderStroke(1.dp, colors.red.copy(alpha = 0.6f)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Keep Rule", color = colors.red, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
-    }
-}
-
-private fun formatDuration(ms: Long): String {
-    val totalSeconds = ms / 1000L
-    val hours = totalSeconds / 3600L
-    val minutes = (totalSeconds % 3600L) / 60L
-    val seconds = totalSeconds % 60L
-    return when {
-        hours > 0 -> "${hours}h ${minutes}m"
-        minutes > 0 -> "${minutes}m ${seconds}s"
-        else -> "${seconds}s"
     }
 }

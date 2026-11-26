@@ -17,7 +17,7 @@ This document reflects the current operational state, implemented features, veri
 | **Chat Safeguard** | ✅ Stable | Monitors on-screen explicit text in chat apps; displays throttled 4-second warning toast/heads-up. |
 | **Device Admin & Device Owner**| ✅ Stable | Implements `DeviceAdminManager` for anti-tamper, safe boot restriction, and always-on VPN. |
 | **TamperLock / Partner Auth** | ✅ Stable | Offline cryptographic HMAC-SHA256 partner QR code verification & unlock mechanism. |
-| **Jetpack Compose UI** | ✅ Stable | Dashboard, Onboarding wizard, Partner Setup, Custom Rules, Telemetry Wave Card. |
+| **Jetpack Compose UI** | ✅ Stable | 4-tab Calm Fortress UI (`Shield`, `Rules`, `Partner`, `Settings`), ISO QR Vault, Guided Setup Sheet, Live DNS Modal. |
 | **Boot Auto-Start** | ✅ Stable | Restarts VPN and protection services automatically on system boot (`BootCompletedReceiver`). |
 | **Crash Protection & Updates**| ✅ Stable | `CrashGuardManager` recovery and GitHub Releases OTA checking via `AppUpdateManager`. |
 

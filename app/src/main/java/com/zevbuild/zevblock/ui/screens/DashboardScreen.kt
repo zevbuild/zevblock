@@ -1,22 +1,11 @@
 package com.zevbuild.zevblock.ui.screens
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
-import android.widget.Toast
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.ui.res.painterResource
-import com.zevbuild.zevblock.R
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,31 +21,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
-import com.zevbuild.zevblock.ui.components.AnimatedRollingCounter
-import com.zevbuild.zevblock.ui.components.NetworkTelemetryWaveCard
-import com.zevbuild.zevblock.ui.components.RadarPulseDot
-import com.zevbuild.zevblock.ui.components.SpringBounceBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -68,57 +42,56 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
-import com.zevbuild.zevblock.core.stats.DayStat
-import com.zevbuild.zevblock.core.stats.ProtectionStatsManager
-import com.zevbuild.zevblock.core.updater.AppUpdateManager
-import com.zevbuild.zevblock.core.updater.UpdateStatus
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.zevbuild.zevblock.R
 import com.zevbuild.zevblock.accessibility.AccessibilityLogEntry
-import com.zevbuild.zevblock.core.admin.DeviceAdminManager
 import com.zevbuild.zevblock.core.admin.DeviceOwnerStatus
 import com.zevbuild.zevblock.core.dns.DnsLogEntry
-import com.zevbuild.zevblock.ui.theme.ShieldAmber
-import com.zevbuild.zevblock.ui.theme.ShieldBorderDark
-import com.zevbuild.zevblock.ui.theme.ShieldCardDark
-import com.zevbuild.zevblock.ui.theme.ShieldGreen
-import com.zevbuild.zevblock.ui.theme.ShieldGreenDark
-import com.zevbuild.zevblock.ui.theme.ShieldNavyDark
-import com.zevbuild.zevblock.ui.theme.ShieldRed
-import com.zevbuild.zevblock.ui.theme.ShieldSurfaceDark
-import com.zevbuild.zevblock.ui.theme.ShieldTeal
-import com.zevbuild.zevblock.ui.theme.TextMutedDark
-import com.zevbuild.zevblock.ui.theme.TextPrimaryDark
-import com.zevbuild.zevblock.ui.theme.TextSecondaryDark
+import com.zevbuild.zevblock.core.stats.DayStat
+import com.zevbuild.zevblock.core.stats.ProtectionStatsManager
+import com.zevbuild.zevblock.core.updater.AppUpdateManager
+import com.zevbuild.zevblock.core.updater.UpdateStatus
+import com.zevbuild.zevblock.ui.components.AnimatedRollingCounter
+import com.zevbuild.zevblock.ui.components.RadarPulseDot
+import com.zevbuild.zevblock.ui.components.SpringBounceBox
+import com.zevbuild.zevblock.ui.components.ZevStatusBadge
+import com.zevbuild.zevblock.ui.components.formatDurationClock
+import com.zevbuild.zevblock.ui.theme.ZevTheme
+import com.zevbuild.zevblock.vpn.DnsBlockerVpnService
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * Main Dashboard Status Screen:
- * Presents the primary operational overview of ShieldGuard OS,
- * showing live defense posture, real-time counters, module statuses,
- * and recent security intercept activity.
+ * Shield Overview Screen ("Home"):
+ * Focused 4-block layout reporting true OS state for VPN, Accessibility, and Device Hardening,
+ * interactive 7-day protection breakdown, and on-demand access to the Live DNS Telemetry Sheet.
  */
 @Composable
 fun DashboardScreen(
     deviceOwnerStatus: DeviceOwnerStatus,
     isVpnRunning: Boolean,
     isAccessibilityActive: Boolean,
+    safeSearchEnabled: Boolean = true,
     hasPartnerConfigured: Boolean,
     isCooldownActive: Boolean,
     isBypassActive: Boolean = false,
     bypassRemainingMs: Long = 0L,
+    isRecoveryNeeded: Boolean = false,
     ruleCount: Int,
     dnsLogs: List<DnsLogEntry>,
     accessibilityLogs: List<AccessibilityLogEntry>,
@@ -127,31 +100,38 @@ fun DashboardScreen(
     onApplyLockdown: () -> Unit,
     onReleaseLockdown: () -> Unit,
     onNavigateToSetup: () -> Unit,
+    onNavigateToPartner: () -> Unit = onNavigateToSetup,
+    onNavigateToSettings: () -> Unit = onNavigateToSetup,
+    onOpenLiveDnsSheet: () -> Unit = {},
     onCancelBypass: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val colors = ZevTheme.colors
     val updateStatus by AppUpdateManager.updateStatus.collectAsState()
 
     val past7Days by (statsManager?.past7Days ?: remember { MutableStateFlow(emptyList<DayStat>()) }).collectAsState()
     val todayStat by (statsManager?.todayStat ?: remember { MutableStateFlow(DayStat("Today", "", 0, 0, 0, 0, 0, 0)) }).collectAsState()
-    val allTimeBlocks by (statsManager?.allTimeTotalBlocks ?: remember { MutableStateFlow(0L) }).collectAsState()
     val streakDays by (statsManager?.streakDays ?: remember { MutableStateFlow(1) }).collectAsState()
+    val dlSpeedBps by DnsBlockerVpnService.downloadSpeedBps.collectAsState()
+    val ulSpeedBps by DnsBlockerVpnService.uploadSpeedBps.collectAsState()
+    val latencyMs by DnsBlockerVpnService.lastUpstreamLatencyMs.collectAsState()
+    val activeUpstream by DnsBlockerVpnService.activeUpstreamLabel.collectAsState()
 
     LaunchedEffect(Unit) {
         AppUpdateManager.checkForUpdateOncePerSession(context)
     }
 
-    val isFullDefenseActive = isVpnRunning && isAccessibilityActive && deviceOwnerStatus.isDeviceOwner && !isBypassActive
+    val isCoreActive = isVpnRunning && isAccessibilityActive
+    val isMaxFortress = isCoreActive && deviceOwnerStatus.isDeviceOwner && !isBypassActive
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .testTag("dashboard_lazy_column"),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Urgent Temporary Bypass Active Banner
+        // 1A. Bypass Active Banner
         if (isBypassActive) {
             item(key = "bypass_banner") {
                 Card(
@@ -159,161 +139,146 @@ fun DashboardScreen(
                         .fillMaxWidth()
                         .testTag("temporary_bypass_active_card"),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = ShieldAmber.copy(alpha = 0.15f)),
-                    border = CardDefaults.outlinedCardBorder().copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(ShieldAmber)
-                    )
+                    colors = CardDefaults.cardColors(containerColor = colors.amber.copy(alpha = 0.14f)),
+                    border = BorderStroke(1.dp, colors.amber)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = ShieldAmber, modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("CUSTOM RULES BYPASS ACTIVE", fontWeight = FontWeight.Bold, color = ShieldAmber, fontSize = 13.sp)
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = colors.amberSoftText, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("CUSTOM BYPASS ACTIVE", fontWeight = FontWeight.Bold, color = colors.amberSoftText, fontSize = 12.sp)
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            val sec = bypassRemainingMs / 1000
-                            val min = sec / 60
-                            val s = sec % 60
+                            Spacer(modifier = Modifier.height(3.dp))
                             Text(
-                                text = String.format(java.util.Locale.US, "Custom rules unlocked • Adult Shield strictly ACTIVE • %02d:%02d left", min, s),
-                                color = TextPrimaryDark,
+                                text = "Custom rules paused • ${formatDurationClock(bypassRemainingMs)} left • Adult Shield locked",
+                                color = colors.textPrimary,
                                 fontSize = 12.sp
                             )
                         }
 
+                        Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = onCancelBypass,
-                            colors = ButtonDefaults.buttonColors(containerColor = ShieldRed),
-                            shape = RoundedCornerShape(8.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.redBtn),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Re-Lock", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Re-Lock", color = colors.redBtnFg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
                 }
             }
         }
 
-        // Quick 2-Step Setup Card (Shown when core setup is incomplete)
-        if (!isAccessibilityActive || !isVpnRunning) {
+        // 1B. Interrupted Service / Battery Recovery Prompt
+        if (isRecoveryNeeded && (!isVpnRunning || !isAccessibilityActive)) {
+            item(key = "recovery_banner") {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("service_recovery_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.surface),
+                    border = BorderStroke(1.dp, colors.amber)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Protection Interrupted",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = colors.amberSoftText
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (!isAccessibilityActive) "Browser Guard was stopped by Android. Check battery exemption and re-enable."
+                                else "Local DNS VPN stopped unexpectedly. Tap to resume network filtering.",
+                                fontSize = 12.sp,
+                                color = colors.textSecondary
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = onNavigateToSetup,
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.amber),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Fix Now", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = colors.amberBtnFg)
+                        }
+                    }
+                }
+            }
+        } else if (!isAccessibilityActive || !isVpnRunning) {
+            // 1C. Quick Core Activation Card (only shown when core permissions not yet active)
             item(key = "quick_setup_card") {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("quick_setup_card"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(ShieldAmber)
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = ShieldAmber, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Easy Setup: 2 Quick Steps to Protect Phone",
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimaryDark,
-                            fontSize = 13.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Step 1: Accessibility
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ShieldNavyDark)
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = if (isAccessibilityActive) "✅ 1. Screen & Keyword Guard" else "⚠️ 1. Screen & Keyword Guard",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isAccessibilityActive) ShieldGreen else TextPrimaryDark
-                            )
-                            Text(
-                                text = if (isAccessibilityActive) "Active • Inspecting URLs & Incognito" else "Required • Tap below to enable",
-                                fontSize = 10.sp,
-                                color = TextSecondaryDark
-                            )
-                        }
-
-                        if (!isAccessibilityActive) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Button(
-                                    onClick = { openAppInfo(context) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = ShieldAmber),
-                                    shape = RoundedCornerShape(6.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Text("App Info", fontSize = 10.sp, color = ShieldNavyDark, fontWeight = FontWeight.Bold)
-                                }
-                                Button(
-                                    onClick = { openAccessibility(context) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = ShieldTeal),
-                                    shape = RoundedCornerShape(6.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Text("Enable", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                                }
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.surface),
+                    border = BorderStroke(1.dp, colors.amber.copy(alpha = 0.8f))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = colors.amberSoftText, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Complete Core Shield Setup", fontWeight = FontWeight.Bold, color = colors.textPrimary, fontSize = 14.sp)
                             }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Step 2: VPN Filter
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ShieldNavyDark)
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (isVpnRunning) "✅ 2. Network SafeSearch Blocker" else "⚠️ 2. Network SafeSearch Blocker",
-                                fontSize = 12.sp,
+                                text = "${listOf(isAccessibilityActive, isVpnRunning).count { it }}/2",
+                                fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isVpnRunning) ShieldGreen else TextPrimaryDark
-                            )
-                            Text(
-                                text = if (isVpnRunning) "Active • Sinkholing adult DNS" else "Required • 1 tap to start VPN",
-                                fontSize = 10.sp,
-                                color = TextSecondaryDark
+                                fontSize = 12.sp,
+                                color = colors.amberSoftText
                             )
                         }
 
-                        if (!isVpnRunning) {
-                            Button(
-                                onClick = onToggleVpn,
-                                colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
-                                shape = RoundedCornerShape(6.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onNavigateToSetup,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
                             ) {
-                                Text("Start", fontSize = 10.sp, color = ShieldGreen, fontWeight = FontWeight.Bold)
+                                Text("Guided Setup Wizard", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.teal)
+                            }
+                            if (!isVpnRunning) {
+                                Button(
+                                    onClick = onToggleVpn,
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.greenBtn),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text("Start VPN", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.greenBtnFg)
+                                }
                             }
                         }
                     }
                 }
             }
-            }
         }
-        // New Update Prompt Card
+
+        // 1D. OTA Update Card
         if (updateStatus is UpdateStatus.UpdateAvailable) {
             item(key = "update_available_card") {
                 val release = (updateStatus as UpdateStatus.UpdateAvailable).release
@@ -322,50 +287,29 @@ fun DashboardScreen(
                         .fillMaxWidth()
                         .testTag("app_update_card"),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = ShieldNavyDark),
-                    border = CardDefaults.outlinedCardBorder().copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(ShieldTeal)
-                    )
+                    colors = CardDefaults.cardColors(containerColor = colors.surface),
+                    border = BorderStroke(1.dp, colors.teal)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.SystemUpdate,
-                                contentDescription = "Update Available",
-                                tint = ShieldGreen,
-                                modifier = Modifier.size(24.dp)
-                            )
+                            Icon(Icons.Default.SystemUpdate, contentDescription = "Update Available", tint = colors.green, modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "New Update: ${release.tagName}",
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimaryDark,
-                                fontSize = 15.sp
-                            )
+                            Text("Update Available: ${release.tagName}", fontWeight = FontWeight.Bold, color = colors.textPrimary, fontSize = 15.sp)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = release.releaseNotes.take(160),
-                            color = TextSecondaryDark,
-                            fontSize = 12.sp,
-                            maxLines = 3
-                        )
+                        Text(release.releaseNotes.take(150), color = colors.textSecondary, fontSize = 12.sp, maxLines = 3)
                         Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { AppUpdateManager.downloadApk(context, release) },
-                                colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.greenBtn),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("Download & Install", color = ShieldGreen, fontWeight = FontWeight.Bold)
+                                Text("Download & Install", color = colors.greenBtnFg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
-                            OutlinedButton(
-                                onClick = { AppUpdateManager.dismissUpdate() }
-                            ) {
-                                Text("Later", color = TextMutedDark)
+                            OutlinedButton(onClick = { AppUpdateManager.dismissUpdate() }, shape = RoundedCornerShape(10.dp)) {
+                                Text("Later", color = colors.textMuted, fontSize = 12.sp)
                             }
                         }
                     }
@@ -376,416 +320,446 @@ fun DashboardScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark)
+                    colors = CardDefaults.cardColors(containerColor = colors.surface)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = ShieldTeal,
-                            strokeWidth = 2.dp
-                        )
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.teal, strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Downloading latest release from GitHub...",
-                            color = TextPrimaryDark,
-                            fontSize = 13.sp
-                        )
+                        Text("Downloading latest release from GitHub...", color = colors.textPrimary, fontSize = 13.sp)
                     }
                 }
             }
         }
-        // Hero Shield Card
+
+        // 2. Hero Posture Card (Truthful Independent Posture + Honest KPIs)
         item(key = "hero_status_card") {
+            val postureBadge: String
+            val postureHeadline: String
+            val postureColor: Color
+
+            when {
+                isBypassActive -> {
+                    postureBadge = "BYPASS ACTIVE"
+                    postureHeadline = "Custom rules paused • Adult & Incognito locked"
+                    postureColor = colors.amber
+                }
+                isMaxFortress -> {
+                    postureBadge = "MAXIMUM FORTRESS"
+                    postureHeadline = "All shields + Device Owner lock active"
+                    postureColor = colors.green
+                }
+                isCoreActive -> {
+                    postureBadge = "CORE PROTECTED"
+                    postureHeadline = "DNS filter & screen guard running"
+                    postureColor = colors.green
+                }
+                isVpnRunning || isAccessibilityActive -> {
+                    postureBadge = "PARTIAL PROTECTION"
+                    postureHeadline = if (!isAccessibilityActive) "Browser guard off — DNS active" else "DNS VPN stopped — Browser guard active"
+                    postureColor = colors.amber
+                }
+                else -> {
+                    postureBadge = "STANDBY"
+                    postureHeadline = "Enable DNS & Screen Guard to start protection"
+                    postureColor = colors.red
+                }
+            }
+
+            val safeSearchText = if (isVpnRunning && safeSearchEnabled) "Enforced" else "Off"
+            val safeSearchColor = if (isVpnRunning && safeSearchEnabled) colors.teal else colors.amber
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("hero_status_card"),
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(
-                        if (isFullDefenseActive) ShieldGreen else if (isVpnRunning || isAccessibilityActive) ShieldTeal else ShieldBorderDark
-                    )
-                )
+                colors = CardDefaults.cardColors(containerColor = colors.surface),
+                border = BorderStroke(1.2.dp, postureColor.copy(alpha = 0.75f))
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(22.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Shield Emblem (Static lightweight rendering for zero idle GPU drain)
-                    Box(
-                        modifier = Modifier
-                            .size(76.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isFullDefenseActive) ShieldGreen.copy(alpha = 0.18f)
-                                else if (isVpnRunning || isAccessibilityActive) ShieldTeal.copy(alpha = 0.18f)
-                                else ShieldAmber.copy(alpha = 0.15f)
-                            )
-                            .border(
-                                2.dp,
-                                if (isFullDefenseActive) ShieldGreen
-                                else if (isVpnRunning || isAccessibilityActive) ShieldTeal
-                                else ShieldAmber,
-                                CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_zevblock_logo),
-                            contentDescription = "ZevBlock Shield",
-                            modifier = Modifier.size(46.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(58.dp)
+                                .clip(CircleShape)
+                                .background(postureColor.copy(alpha = 0.14f))
+                                .border(2.dp, postureColor, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.ic_zevblock_mark),
+                                contentDescription = "ZevBlock Shield",
+                                modifier = Modifier.size(38.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = postureBadge,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                letterSpacing = 1.sp,
+                                color = postureColor
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = postureHeadline,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.textPrimary,
+                                lineHeight = 20.sp
+                            )
+                        }
+                    }
+
+                    // 3 Honest KPI Metrics (no hardcoded SafeSearch or synthetic floors)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        MetricBox(
+                            modifier = Modifier.weight(1f),
+                            title = "Blocked Today",
+                            value = "${todayStat.totalBlocks}",
+                            numericValue = todayStat.totalBlocks,
+                            color = colors.textPrimary
+                        )
+                        MetricBox(
+                            modifier = Modifier.weight(1f),
+                            title = "Clean Streak",
+                            value = "${streakDays}d",
+                            color = colors.green
+                        )
+                        MetricBox(
+                            modifier = Modifier.weight(1f),
+                            title = "SafeSearch",
+                            value = safeSearchText,
+                            color = safeSearchColor
                         )
                     }
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Text(
-                    text = if (isFullDefenseActive) "PROTECTION MAXIMUM"
-                    else if (isVpnRunning || isAccessibilityActive) "PROTECTION ACTIVE"
-                    else "STANDBY • SETUP INCOMPLETE",
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    letterSpacing = 1.5.sp,
-                    color = if (isFullDefenseActive) ShieldGreen
-                    else if (isVpnRunning || isAccessibilityActive) ShieldTeal
-                    else ShieldAmber
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = if (isFullDefenseActive) "All Anti-Bypass Safeguards Enforced"
-                    else "Complete permissions setup for full anti-tamper security",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimaryDark
-                )
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // Real-time counter metrics
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MetricBox(
-                        modifier = Modifier.weight(1f),
-                        title = "DNS Rules",
-                        value = "$ruleCount",
-                        numericValue = ruleCount.toLong(),
-                        color = ShieldTeal
-                    )
-                    MetricBox(
-                        modifier = Modifier.weight(1f),
-                        title = "SafeSearch",
-                        value = "VIP Active",
-                        color = ShieldGreen
-                    )
-                    MetricBox(
-                        modifier = Modifier.weight(1f),
-                        title = "Anti-Tamper",
-                        value = if (isAccessibilityActive) "Guarded" else "Off",
-                        color = if (isAccessibilityActive) ShieldGreen else ShieldAmber
-                    )
-                }
-            }
-        }
-        }
-
-        // Live Real-Time Network Telemetry Visualizer Wave & Counters
-        item(key = "telemetry_wave_card") {
-            NetworkTelemetryWaveCard(
-                isVpnRunning = isVpnRunning,
-                totalInspectedQueries = (allTimeBlocks + todayStat.totalBlocks + ruleCount * 4L).coerceAtLeast(18L),
-                dnsLogs = dnsLogs
-            )
-        }
-
-        // 7-Day Visual Activity Bar Chart & Protection Streak
-        item(key = "weekly_bar_chart") {
-            WeeklyProtectionBarChart(
-                past7Days = past7Days,
-                streakDays = streakDays,
-                allTimeTotalBlocks = allTimeBlocks,
-                todayTotalBlocks = todayStat.totalBlocks
-            )
-        }
-
-        // Module Defense Grid (2x2 Cards)
-        item(key = "defense_modules_grid") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "DEFENSE MODULES",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    color = TextSecondaryDark,
-                    letterSpacing = 1.sp
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    ModuleStatusCard(
-                        modifier = Modifier.weight(1f),
-                        title = "DNS Sinkhole",
-                        subtitle = if (isVpnRunning) "Filtering traffic" else "Stopped",
-                        active = isVpnRunning,
-                        icon = Icons.Default.Dns,
-                        activeColor = ShieldGreen,
-                        onClick = onToggleVpn
-                    )
-
-                    ModuleStatusCard(
-                        modifier = Modifier.weight(1f),
-                        title = "Browser Guard",
-                        subtitle = if (isAccessibilityActive) "Scraper running" else "Disabled",
-                        active = isAccessibilityActive,
-                        icon = Icons.Default.Visibility,
-                        activeColor = ShieldGreen,
-                        onClick = onNavigateToSetup
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    ModuleStatusCard(
-                        modifier = Modifier.weight(1f),
-                        title = "Device Owner",
-                        subtitle = if (deviceOwnerStatus.isDeviceOwner) "Anti-uninstall locked" else "ADB required",
-                        active = deviceOwnerStatus.isDeviceOwner,
-                        icon = Icons.Default.PhoneAndroid,
-                        activeColor = ShieldGreen,
-                        onClick = onNavigateToSetup
-                    )
-
-                    ModuleStatusCard(
-                        modifier = Modifier.weight(1f),
-                        title = "Partner Lock",
-                        subtitle = if (hasPartnerConfigured) "Paired (TOTP)" else "Unpaired",
-                        active = hasPartnerConfigured,
-                        icon = Icons.Default.Lock,
-                        activeColor = ShieldTeal,
-                        onClick = onNavigateToSetup
-                    )
-                }
-            }
-        }
-
-        // Quick Lockdown Actions Card
-        item(key = "lockdown_actions_card") {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("lockdown_actions_card"),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "System Anti-Bypass Policies",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = TextPrimaryDark
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Lock uninstallation, Safe Mode, and Always-On VPN atomically via DevicePolicyManager.",
-                        fontSize = 12.sp,
-                        color = TextSecondaryDark
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
+                    // Primary Actions Row (with Partner-gated Pause button contrast fixed)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = onApplyLockdown,
+                            onClick = onOpenLiveDnsSheet,
                             modifier = Modifier
                                 .weight(1f)
-                                .testTag("dashboard_apply_policies"),
-                            colors = ButtonDefaults.buttonColors(containerColor = ShieldGreenDark),
-                            shape = RoundedCornerShape(8.dp)
+                                .height(46.dp)
+                                .testTag("open_live_dns_sheet_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.teal),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Enforce Lockdown", fontSize = 12.sp, color = Color.White)
+                            Text(
+                                text = "Inspect Live DNS",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.tealBtnFg
+                            )
                         }
 
                         OutlinedButton(
-                            onClick = onReleaseLockdown,
+                            onClick = onToggleVpn,
                             modifier = Modifier
-                                .weight(1f)
-                                .testTag("dashboard_release_policies"),
-                            shape = RoundedCornerShape(8.dp)
+                                .height(46.dp)
+                                .testTag("dashboard_toggle_vpn_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, colors.border)
                         ) {
-                            Icon(imageVector = Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Release", fontSize = 12.sp, color = TextPrimaryDark)
+                            Text(
+                                text = if (isVpnRunning) {
+                                    if (hasPartnerConfigured) "Pause Lock" else "Stop VPN"
+                                } else "Start VPN",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.textPrimary
+                            )
                         }
                     }
                 }
             }
         }
 
-        // Recent Activity Feed
-        item(key = "recent_activity_section") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 3. Compact Live Telemetry Strip (opens detailed wave & RAM-only logs sheet)
+        item(key = "live_telemetry_strip") {
+            val latencyLabel = when {
+                !isVpnRunning -> "VPN idle"
+                latencyMs > 0L -> "$activeUpstream • ${latencyMs}ms"
+                else -> "$activeUpstream • Ready"
+            }
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { onOpenLiveDnsSheet() }
+                    .testTag("compact_telemetry_strip"),
+                color = colors.card,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, colors.border)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isVpnRunning) "↓ ${DnsBlockerVpnService.formatSpeed(dlSpeedBps)}  ↑ ${DnsBlockerVpnService.formatSpeed(ulSpeedBps)}"
+                            else "$ruleCount DNS & Custom Rules Ready",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = if (isVpnRunning) colors.green else colors.textPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = latencyLabel,
+                            fontSize = 11.sp,
+                            color = colors.textSecondary
+                        )
+                    }
+                    ZevStatusBadge(
+                        label = "STREAM",
+                        color = colors.teal,
+                        showDot = isVpnRunning,
+                        pulse = isVpnRunning
+                    )
+                }
+            }
+        }
+
+        // 4. 7-Day Activity Bar Chart with Interactive Day Selection
+        item(key = "weekly_bar_chart") {
+            WeeklyProtectionBarChart(
+                past7Days = past7Days,
+                streakDays = streakDays
+            )
+        }
+
+        // 5. 3 Independent Defense Layers + Accountability Status
+        item(key = "defense_modules_grid") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "LIVE SECURITY ACTIVITY",
+                    text = "DEFENSE LAYERS",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
-                    color = TextSecondaryDark,
-                    letterSpacing = 1.sp
+                    color = colors.textSecondary,
+                    letterSpacing = 0.8.sp
+                )
+
+                LayerRowCard(
+                    title = "Network DNS Sinkhole",
+                    subtitle = if (isVpnRunning) "Local port 53 filter • $ruleCount rules active" else "VPN stopped",
+                    badgeText = if (isVpnRunning) "ACTIVE" else "OFF",
+                    badgeColor = if (isVpnRunning) colors.green else colors.red,
+                    pulse = isVpnRunning,
+                    icon = Icons.Default.Dns,
+                    onClick = onToggleVpn
+                )
+
+                LayerRowCard(
+                    title = "Screen, Browser & Chat Guard",
+                    subtitle = if (isAccessibilityActive) "Inspecting 30+ browsers, Incognito & Settings" else "Accessibility permission required",
+                    badgeText = if (isAccessibilityActive) "ACTIVE" else "OFF",
+                    badgeColor = if (isAccessibilityActive) colors.green else colors.red,
+                    pulse = isAccessibilityActive,
+                    icon = Icons.Default.Visibility,
+                    onClick = onNavigateToSetup
+                )
+
+                val hardeningSubtitle = when {
+                    deviceOwnerStatus.isDeviceOwner -> "Uninstall, Safe Boot & Private DNS locked"
+                    deviceOwnerStatus.isAdminActive -> "Standard Device Admin active (Safe Boot needs ADB)"
+                    else -> "Optional ADB Device Owner or Standard Admin"
+                }
+                val hardeningBadge = when {
+                    deviceOwnerStatus.isDeviceOwner -> "OWNER"
+                    deviceOwnerStatus.isAdminActive -> "BASIC"
+                    else -> "OFF"
+                }
+                val hardeningColor = when {
+                    deviceOwnerStatus.isDeviceOwner -> colors.green
+                    deviceOwnerStatus.isAdminActive -> colors.amber
+                    else -> colors.textMuted
+                }
+
+                LayerRowCard(
+                    title = "Device Hardening",
+                    subtitle = hardeningSubtitle,
+                    badgeText = hardeningBadge,
+                    badgeColor = hardeningColor,
+                    pulse = deviceOwnerStatus.isDeviceOwner,
+                    icon = Icons.Default.PhoneAndroid,
+                    onClick = onNavigateToSettings
+                )
+
+                LayerRowCard(
+                    title = "Accountability Partner Lock",
+                    subtitle = when {
+                        isCooldownActive -> "Timed delay unlock active"
+                        hasPartnerConfigured -> "Paired with offline RFC 6238 TOTP"
+                        else -> "Pair a trusted friend's authenticator"
+                    },
+                    badgeText = if (hasPartnerConfigured) "LOCKED" else "UNPAIRED",
+                    badgeColor = if (hasPartnerConfigured) colors.teal else colors.textMuted,
+                    pulse = false,
+                    icon = Icons.Default.Lock,
+                    onClick = onNavigateToPartner
+                )
+            }
+        }
+
+        // 6. Device Owner Policy Controls (only actionable when Device Owner is genuinely active)
+        if (deviceOwnerStatus.isDeviceOwner) {
+            item(key = "lockdown_actions_card") {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("lockdown_actions_card"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.surface),
+                    border = BorderStroke(1.dp, colors.border)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Hardware Anti-Bypass Policies", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = colors.textPrimary)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Lock uninstall, Safe Mode boot, Private DNS modification, and Always-On VPN via DevicePolicyManager.",
+                            fontSize = 12.sp,
+                            color = colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = onApplyLockdown,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("dashboard_apply_policies"),
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.greenBtn),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.greenBtnFg)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Enforce", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.greenBtnFg)
+                            }
+                            OutlinedButton(
+                                onClick = onReleaseLockdown,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("dashboard_release_policies"),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, colors.border)
+                            ) {
+                                Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.textPrimary)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Release", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 7. Recent High-Signal Security Events (focuses on Screen/Tamper/Block alerts without duplicating full DNS log)
+        item(key = "recent_activity_section") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "RECENT INTERCEPT EVENTS",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.textSecondary,
+                    letterSpacing = 0.8.sp
                 )
 
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("recent_activity_card"),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
-            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                val combinedLogs = ArrayList<ActivityFeedItem>()
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.surface),
+                    border = BorderStroke(1.dp, colors.border)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val combinedLogs = ArrayList<ActivityFeedItem>()
+                        accessibilityLogs.take(5).forEach {
+                            combinedLogs.add(
+                                ActivityFeedItem(
+                                    title = it.actionTitle,
+                                    subtitle = "${it.packageName} • ${it.detail}",
+                                    badgeColor = colors.amberSoftText,
+                                    timestamp = it.timestamp
+                                )
+                            )
+                        }
+                        dnsLogs.filter { it.isBlocked }.take(3).forEach {
+                            combinedLogs.add(
+                                ActivityFeedItem(
+                                    title = it.domain,
+                                    subtitle = "DNS Sinkholed: ${it.reason}",
+                                    badgeColor = colors.red,
+                                    timestamp = it.timestamp
+                                )
+                            )
+                        }
 
-                dnsLogs.take(5).forEach {
-                    combinedLogs.add(
-                        ActivityFeedItem(
-                            title = it.domain,
-                            subtitle = if (it.isSafeSearchRewritten) "SafeSearch VIP Rewritten" else if (it.isBlocked) "Blocked: ${it.reason}" else "Allowed",
-                            badgeColor = if (it.isSafeSearchRewritten) ShieldTeal else if (it.isBlocked) ShieldRed else ShieldGreen,
-                            timestamp = it.timestamp
-                        )
-                    )
-                }
-
-                accessibilityLogs.take(5).forEach {
-                    combinedLogs.add(
-                        ActivityFeedItem(
-                            title = it.actionTitle,
-                            subtitle = "${it.packageName} • ${it.detail}",
-                            badgeColor = ShieldAmber,
-                            timestamp = it.timestamp
-                        )
-                    )
-                }
-
-                if (combinedLogs.isEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = ShieldGreen, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("No violations recorded. All network queries and browser activity secure.", fontSize = 12.sp, color = TextSecondaryDark)
-                    }
-                } else {
-                    combinedLogs.sortedByDescending { it.timestamp }.take(6).forEach { item ->
-                        SpringBounceBox(
-                            modifier = Modifier.fillMaxWidth(),
-                            scaleDown = 0.98f
-                        ) {
+                        if (combinedLogs.isEmpty()) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(ShieldNavyDark.copy(alpha = 0.4f))
-                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                    .padding(vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(item.badgeColor)
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = colors.green, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Quiet session. No blocked sites or tamper attempts recorded yet.",
+                                    fontSize = 12.sp,
+                                    color = colors.textSecondary
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextPrimaryDark)
-                                    Text(item.subtitle, fontSize = 11.sp, color = TextSecondaryDark)
-                                }
                             }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-                    }
-                }
-            }
-            }
-        }
-
-        // Release Channel & Updates Footer Card
-        item(key = "release_channel_footer") {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark)
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = "ZevBlock Release Channel",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            color = TextPrimaryDark
-                        )
-                        Text(
-                            text = "Version: v${AppUpdateManager.getInstalledVersionName(context)} • GitHub Stable",
-                            fontSize = 11.sp,
-                            color = ShieldTeal
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                val result = AppUpdateManager.checkForUpdate(context)
-                                if (result is UpdateStatus.UpToDate) {
-                                    Toast.makeText(context, "ZevBlock is up to date!", Toast.LENGTH_SHORT).show()
-                                } else if (result is UpdateStatus.Error) {
-                                    Toast.makeText(context, "Update check: ${result.message}", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = ShieldNavyDark),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        if (updateStatus is UpdateStatus.Checking) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = ShieldTeal, strokeWidth = 2.dp)
                         } else {
-                            Text("Check Updates", fontSize = 11.sp, color = ShieldTeal)
+                            combinedLogs.sortedByDescending { it.timestamp }.take(5).forEach { entry ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(colors.background)
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(entry.badgeColor)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(entry.title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.textPrimary)
+                                        Text(entry.subtitle, fontSize = 11.sp, color = colors.textSecondary)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -798,82 +772,222 @@ fun MetricBox(
     color: Color,
     numericValue: Long? = null
 ) {
-    SpringBounceBox(
-        modifier = modifier,
-        scaleDown = 0.95f
-    ) {
+    val colors = ZevTheme.colors
+    SpringBounceBox(modifier = modifier, scaleDown = 0.96f) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(ShieldNavyDark)
-                .border(1.dp, ShieldBorderDark, RoundedCornerShape(10.dp))
-                .padding(vertical = 10.dp, horizontal = 8.dp),
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.background)
+                .border(1.dp, colors.border, RoundedCornerShape(12.dp))
+                .padding(vertical = 10.dp, horizontal = 6.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (numericValue != null) {
                     AnimatedRollingCounter(
                         value = numericValue,
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = color
                     )
                 } else {
-                    Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = color)
+                    Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
                 }
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(title, fontSize = 10.sp, color = TextSecondaryDark)
+                Text(title, fontSize = 11.sp, color = colors.textMuted, maxLines = 1)
             }
         }
     }
 }
 
 @Composable
-fun ModuleStatusCard(
-    modifier: Modifier,
+private fun LayerRowCard(
     title: String,
     subtitle: String,
-    active: Boolean,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    activeColor: Color,
+    badgeText: String,
+    badgeColor: Color,
+    pulse: Boolean,
+    icon: ImageVector,
     onClick: () -> Unit
 ) {
+    val colors = ZevTheme.colors
     SpringBounceBox(
-        modifier = modifier,
-        scaleDown = 0.96f,
+        modifier = Modifier.fillMaxWidth(),
+        scaleDown = 0.98f,
         onClick = onClick
     ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(ShieldCardDark)
-                .border(1.dp, ShieldBorderDark, RoundedCornerShape(12.dp)),
-            colors = CardDefaults.cardColors(containerColor = ShieldCardDark)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = colors.surface,
+            border = BorderStroke(1.dp, colors.border)
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = if (active) activeColor else TextMutedDark,
+                        tint = badgeColor,
                         modifier = Modifier.size(20.dp)
                     )
-                    RadarPulseDot(
-                        active = active,
-                        activeColor = activeColor,
-                        inactiveColor = ShieldRed.copy(alpha = 0.5f),
-                        size = 8.dp
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                        Text(subtitle, fontSize = 12.sp, color = colors.textSecondary, maxLines = 1)
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                ZevStatusBadge(
+                    label = badgeText,
+                    color = badgeColor,
+                    showDot = true,
+                    pulse = pulse
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun WeeklyProtectionBarChart(
+    past7Days: List<DayStat>,
+    streakDays: Int
+) {
+    val colors = ZevTheme.colors
+    var selectedIdx by remember(past7Days) {
+        mutableIntStateOf((past7Days.size - 1).coerceAtLeast(0))
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surface),
+        border = BorderStroke(1.dp, colors.border)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "7-DAY PROTECTION MOMENTUM",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textMuted,
+                        letterSpacing = 0.8.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Daily Intercepts",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textPrimary
                     )
                 }
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = colors.green.copy(alpha = 0.14f),
+                    border = BorderStroke(1.dp, colors.green.copy(alpha = 0.5f))
+                ) {
+                    Text(
+                        text = "$streakDays Days Protected",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = colors.green,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            val maxBlocks = (past7Days.maxOfOrNull { it.totalBlocks } ?: 1L).coerceAtLeast(10L).toFloat()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(112.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                past7Days.forEachIndexed { index, day ->
+                    val fraction = (day.totalBlocks.toFloat() / maxBlocks).coerceIn(0.1f, 1f)
+                    val isSelected = index == selectedIdx
+                    val isToday = day.dayLabel == "Today"
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { selectedIdx = index }
+                            .padding(vertical = 2.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom
+                    ) {
+                        Text(
+                            text = "${day.totalBlocks}",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) colors.green else colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .width(22.dp)
+                                .height((72 * fraction).dp)
+                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                .background(
+                                    when {
+                                        isSelected -> Brush.verticalGradient(listOf(colors.green, colors.teal))
+                                        day.totalBlocks > 0 -> SolidColor(colors.teal.copy(alpha = 0.5f))
+                                        else -> SolidColor(colors.border)
+                                    }
+                                )
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = day.dayLabel,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) colors.textPrimary else colors.textMuted
+                        )
+                    }
+                }
+            }
+
+            val inspectedDay = past7Days.getOrNull(selectedIdx)
+            if (inspectedDay != null) {
                 Spacer(modifier = Modifier.height(10.dp))
-                Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimaryDark)
-                Text(subtitle, fontSize = 11.sp, color = TextSecondaryDark, maxLines = 1)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.background)
+                        .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "${inspectedDay.dayLabel}: DNS ${inspectedDay.dnsBlocked} • Screen ${inspectedDay.screenBlocked} • Chat ${inspectedDay.chatWarnings} • Tamper ${inspectedDay.settingsBlocked}",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = colors.textSecondary
+                    )
+                }
             }
         }
     }
@@ -885,212 +999,3 @@ data class ActivityFeedItem(
     val badgeColor: Color,
     val timestamp: Long
 )
-
-private fun openAppInfo(context: Context) {
-    try {
-        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-            data = Uri.fromParts("package", context.packageName, null)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-    } catch (_: Exception) {}
-}
-
-private fun openAccessibility(context: Context) {
-    try {
-        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-    } catch (_: Exception) {}
-}
-
-@Composable
-fun WeeklyProtectionBarChart(
-    past7Days: List<DayStat>,
-    streakDays: Int,
-    allTimeTotalBlocks: Long,
-    todayTotalBlocks: Long
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = ShieldSurfaceDark),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldBorderDark))
-    ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            // Header with Streak Badge
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "PROTECTION HISTORY",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextSecondaryDark,
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "7-Day Activity & Streak",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
-                }
-
-                // Streak Badge
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = ShieldGreen.copy(alpha = 0.15f),
-                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(ShieldGreen))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "🔥 $streakDays Days Clean",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = ShieldGreen
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            // Bar Chart Layout
-            val maxBlocks = (past7Days.maxOfOrNull { it.totalBlocks } ?: 1L).coerceAtLeast(10L).toFloat()
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(130.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                past7Days.forEach { day ->
-                    val targetFraction = (day.totalBlocks.toFloat() / maxBlocks).coerceIn(0.08f, 1f)
-                    val animatedFraction by animateFloatAsState(
-                        targetValue = targetFraction,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessLow
-                        ),
-                        label = "bar_anim_${day.dayLabel}"
-                    )
-                    val isToday = day.dayLabel == "Today"
-
-                    SpringBounceBox(
-                        modifier = Modifier.weight(1f),
-                        scaleDown = 0.92f
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Bottom
-                        ) {
-                            // Value label above bar
-                            Text(
-                                text = if (day.totalBlocks > 0) "${day.totalBlocks}" else "0",
-                                fontSize = 10.sp,
-                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isToday) ShieldGreen else TextSecondaryDark
-                            )
-
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            // Bar with gradient and spring height
-                            Box(
-                                modifier = Modifier
-                                    .width(22.dp)
-                                    .height((90 * animatedFraction).dp)
-                                    .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                                    .background(
-                                        if (isToday) {
-                                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                                listOf(ShieldGreen, ShieldTeal)
-                                            )
-                                        } else if (day.totalBlocks > 0) {
-                                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                                listOf(ShieldTeal.copy(alpha = 0.8f), ShieldTeal.copy(alpha = 0.3f))
-                                            )
-                                        } else {
-                                            androidx.compose.ui.graphics.SolidColor(ShieldBorderDark)
-                                        }
-                                    )
-                            )
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            // Day label (e.g. Mon, Tue, Today)
-                            Text(
-                                text = day.dayLabel,
-                                fontSize = 10.sp,
-                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isToday) ShieldGreen else TextSecondaryDark
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Category Distribution Summary Chips
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                StatPill(
-                    modifier = Modifier.weight(1f),
-                    title = "DNS Sinks",
-                    count = past7Days.sumOf { it.dnsBlocked },
-                    color = ShieldGreen
-                )
-                StatPill(
-                    modifier = Modifier.weight(1f),
-                    title = "Screen Blocks",
-                    count = past7Days.sumOf { it.screenBlocked },
-                    color = ShieldTeal
-                )
-                StatPill(
-                    modifier = Modifier.weight(1f),
-                    title = "Chat Warnings",
-                    count = past7Days.sumOf { it.chatWarnings },
-                    color = ShieldAmber
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun StatPill(
-    modifier: Modifier = Modifier,
-    title: String,
-    count: Long,
-    color: Color
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(10.dp),
-        color = color.copy(alpha = 0.10f),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(color.copy(alpha = 0.3f)))
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(text = "$count", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = color)
-            Text(text = title, fontSize = 10.sp, color = TextSecondaryDark, maxLines = 1)
-        }
-    }
-}
-
-

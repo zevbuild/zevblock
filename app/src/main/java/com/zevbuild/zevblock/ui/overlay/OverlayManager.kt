@@ -5,7 +5,7 @@ import android.os.SystemClock
 import android.util.Log
 
 /**
- * OverlayManager handles rate-limited, debounced triggering of security warning overlays.
+ * OverlayManager handles rate-limited, debounced triggering of supportive security intervention overlays.
  */
 object OverlayManager {
 
@@ -19,7 +19,9 @@ object OverlayManager {
         context: Context,
         alertType: String,
         message: String,
-        detail: String = ""
+        detail: String = "",
+        category: String = "SYSTEM SHIELD",
+        streakDays: Int = 0
     ) {
         val now = SystemClock.elapsedRealtime()
         if (now - lastTriggerTime < DEBOUNCE_INTERVAL_MS) {
@@ -28,7 +30,14 @@ object OverlayManager {
         }
         lastTriggerTime = now
 
-        Log.w(TAG, "Triggering Security Warning Overlay: [$alertType] $message ($detail)")
-        SecurityWarningOverlayActivity.show(context, alertType, message, detail)
+        Log.w(TAG, "Triggering Security Warning Overlay: [$category / $alertType] $message")
+        SecurityWarningOverlayActivity.show(
+            context = context,
+            alertType = alertType,
+            message = message,
+            detail = detail,
+            category = category,
+            streakDays = streakDays
+        )
     }
 }

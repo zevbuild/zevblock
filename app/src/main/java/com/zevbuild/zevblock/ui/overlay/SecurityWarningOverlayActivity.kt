@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,21 +23,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,21 +49,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.zevbuild.zevblock.ui.theme.MyApplicationTheme
-import com.zevbuild.zevblock.ui.theme.ShieldAmber
-import com.zevbuild.zevblock.ui.theme.ShieldBorderDark
-import com.zevbuild.zevblock.ui.theme.ShieldCardDark
-import com.zevbuild.zevblock.ui.theme.ShieldNavyDark
-import com.zevbuild.zevblock.ui.theme.ShieldRed
-import com.zevbuild.zevblock.ui.theme.TextMutedDark
-import com.zevbuild.zevblock.ui.theme.TextPrimaryDark
-import com.zevbuild.zevblock.ui.theme.TextSecondaryDark
+import com.zevbuild.zevblock.core.prefs.ZevBlockPreferences
+import com.zevbuild.zevblock.ui.theme.ZevBlockTheme
+import com.zevbuild.zevblock.ui.theme.ZevTheme
 import kotlinx.coroutines.delay
 
 /**
- * High-impact Jetpack Compose security overlay activity.
+ * Calm, supportive Jetpack Compose intervention overlay activity.
  * Triggered automatically when an Incognito window, NSFW content, or Android settings
- * tamper attempt is intercepted.
+ * tamper attempt is intercepted, surfacing clear rule attribution and streak encouragement.
  */
 class SecurityWarningOverlayActivity : ComponentActivity() {
 
@@ -71,16 +65,21 @@ class SecurityWarningOverlayActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val alertType = intent.getStringExtra(EXTRA_ALERT_TYPE) ?: "Security Restriction"
-        val message = intent.getStringExtra(EXTRA_MESSAGE) ?: "This action has been restricted by ZevBlock."
+        val alertType = intent.getStringExtra(EXTRA_ALERT_TYPE) ?: "Pause & Stay Focused"
+        val message = intent.getStringExtra(EXTRA_MESSAGE) ?: "This action is restricted under your active ZevBlock safeguards."
         val detail = intent.getStringExtra(EXTRA_DETAIL) ?: ""
+        val category = intent.getStringExtra(EXTRA_CATEGORY) ?: "SYSTEM SHIELD"
+        val streakDays = intent.getIntExtra(EXTRA_STREAK_DAYS, 0)
+        val themeMode = ZevBlockPreferences(this).themeMode.value
 
         setContent {
-            MyApplicationTheme {
+            ZevBlockTheme(themeMode = themeMode) {
                 SecurityWarningOverlayScreen(
                     alertType = alertType,
                     message = message,
                     detail = detail,
+                    category = category,
+                    streakDays = streakDays,
                     onDismiss = { finish() }
                 )
             }
@@ -91,13 +90,24 @@ class SecurityWarningOverlayActivity : ComponentActivity() {
         const val EXTRA_ALERT_TYPE = "extra_alert_type"
         const val EXTRA_MESSAGE = "extra_message"
         const val EXTRA_DETAIL = "extra_detail"
+        const val EXTRA_CATEGORY = "extra_category"
+        const val EXTRA_STREAK_DAYS = "extra_streak_days"
 
-        fun show(context: Context, alertType: String, message: String, detail: String = "") {
+        fun show(
+            context: Context,
+            alertType: String,
+            message: String,
+            detail: String = "",
+            category: String = "SYSTEM SHIELD",
+            streakDays: Int = 0
+        ) {
             try {
                 val intent = Intent(context, SecurityWarningOverlayActivity::class.java).apply {
                     putExtra(EXTRA_ALERT_TYPE, alertType)
                     putExtra(EXTRA_MESSAGE, message)
                     putExtra(EXTRA_DETAIL, detail)
+                    putExtra(EXTRA_CATEGORY, category)
+                    putExtra(EXTRA_STREAK_DAYS, streakDays)
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                             Intent.FLAG_ACTIVITY_CLEAR_TOP or
                             Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -119,22 +129,28 @@ fun SecurityWarningOverlayScreen(
     alertType: String,
     message: String,
     detail: String,
+    category: String = "SYSTEM SHIELD",
+    streakDays: Int = 0,
     onDismiss: () -> Unit
 ) {
-    var countdownSeconds by remember { mutableIntStateOf(5) }
+    val colors = ZevTheme.colors
+    var countdownSeconds by remember { mutableIntStateOf(6) }
+    var autoDismissPaused by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        while (countdownSeconds > 0) {
-            delay(1000L)
-            countdownSeconds--
+    LaunchedEffect(autoDismissPaused) {
+        if (!autoDismissPaused) {
+            while (countdownSeconds > 0) {
+                delay(1000L)
+                countdownSeconds--
+            }
+            onDismiss()
         }
-        onDismiss()
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.82f))
+            .background(Color.Black.copy(alpha = 0.84f))
             .padding(24.dp)
             .testTag("security_overlay_root"),
         contentAlignment = Alignment.Center
@@ -142,11 +158,12 @@ fun SecurityWarningOverlayScreen(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
+                .clickable { autoDismissPaused = true }
                 .testTag("security_warning_card"),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = ShieldCardDark),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = colors.surface),
             border = CardDefaults.outlinedCardBorder().copy(
-                brush = androidx.compose.ui.graphics.SolidColor(ShieldRed.copy(alpha = 0.8f))
+                brush = androidx.compose.ui.graphics.SolidColor(colors.red.copy(alpha = 0.85f))
             )
         ) {
             Column(
@@ -155,52 +172,59 @@ fun SecurityWarningOverlayScreen(
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header icon
+                // Protective Shield Icon
                 Box(
                     modifier = Modifier
                         .size(64.dp)
                         .clip(CircleShape)
-                        .background(ShieldRed.copy(alpha = 0.18f))
-                        .border(2.dp, ShieldRed, CircleShape),
+                        .background(colors.red.copy(alpha = 0.16f))
+                        .border(2.dp, colors.red, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = "Alert Icon",
-                        tint = ShieldRed,
-                        modifier = Modifier.size(36.dp)
+                        imageVector = Icons.Default.Shield,
+                        contentDescription = "Shield Protection Active",
+                        tint = colors.red,
+                        modifier = Modifier.size(34.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                Text(
-                    text = "ACTION BLOCKED",
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    letterSpacing = 2.sp,
-                    color = ShieldRed
-                )
+                // Rule Category Badge
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = colors.red.copy(alpha = 0.16f)
+                ) {
+                    Text(
+                        text = category.uppercase(),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        letterSpacing = 1.sp,
+                        color = colors.red,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                    )
+                }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
                     text = alertType,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimaryDark,
+                    color = colors.textPrimary,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
                     text = message,
-                    fontSize = 14.sp,
-                    color = TextSecondaryDark,
+                    fontSize = 13.sp,
+                    color = colors.textSecondary,
                     textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
+                    lineHeight = 19.sp
                 )
 
                 if (detail.isNotBlank()) {
@@ -208,23 +232,44 @@ fun SecurityWarningOverlayScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ShieldNavyDark)
-                            .border(1.dp, ShieldBorderDark, RoundedCornerShape(8.dp))
-                            .padding(10.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.background)
+                            .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                            .padding(12.dp)
                     ) {
                         Text(
                             text = detail,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 12.sp,
-                            color = ShieldAmber,
+                            color = colors.amberSoftText,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                if (streakDays > 0) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.green.copy(alpha = 0.12f))
+                            .border(1.dp, colors.green.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Protecting your $streakDays-day clean streak",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.green,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
 
                 Button(
                     onClick = onDismiss,
@@ -232,14 +277,26 @@ fun SecurityWarningOverlayScreen(
                         .fillMaxWidth()
                         .height(48.dp)
                         .testTag("dismiss_overlay_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = ShieldRed),
-                    shape = RoundedCornerShape(10.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.greenBtn),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = "Dismiss ($countdownSeconds s)",
+                        text = if (autoDismissPaused) "Return to Safety" else "Return to Safety (${countdownSeconds}s)",
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        fontSize = 13.sp,
+                        color = colors.greenBtnFg
                     )
+                }
+
+                if (!autoDismissPaused) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    TextButton(onClick = { autoDismissPaused = true }) {
+                        Text(
+                            text = "Tap here to keep reading",
+                            fontSize = 11.sp,
+                            color = colors.textMuted
+                        )
+                    }
                 }
             }
         }
